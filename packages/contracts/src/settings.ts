@@ -14,6 +14,10 @@ import { ModelSelection } from "./orchestration";
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
+export const DEFAULT_UI_FONT_FAMILY = "Geist Mono";
+export const DEFAULT_CODE_FONT_FAMILY = "JetBrains Mono";
+export const DEFAULT_UI_FONT_SIZE_PX = 13;
+export const DEFAULT_CODE_FONT_SIZE_PX = 13.5;
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
@@ -34,6 +38,10 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  uiFontFamily: TrimmedString.pipe(Schema.withDecodingDefault(() => DEFAULT_UI_FONT_FAMILY)),
+  codeFontFamily: TrimmedString.pipe(Schema.withDecodingDefault(() => DEFAULT_CODE_FONT_FAMILY)),
+  uiFontSizePx: Schema.Number.pipe(Schema.withDecodingDefault(() => DEFAULT_UI_FONT_SIZE_PX)),
+  codeFontSizePx: Schema.Number.pipe(Schema.withDecodingDefault(() => DEFAULT_CODE_FONT_SIZE_PX)),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 

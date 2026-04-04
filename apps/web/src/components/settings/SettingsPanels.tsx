@@ -49,6 +49,13 @@ import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
+import {
+  MAX_FONT_SIZE_PX,
+  MIN_FONT_SIZE_PX,
+  formatFontSizeInputValue,
+  sanitizeFontFamily,
+  sanitizeFontSizePx,
+} from "../../appearance";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
@@ -460,6 +467,12 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? ["UI font"] : []),
+      ...(settings.codeFontFamily !== DEFAULT_UNIFIED_SETTINGS.codeFontFamily ? ["Code font"] : []),
+      ...(settings.uiFontSizePx !== DEFAULT_UNIFIED_SETTINGS.uiFontSizePx ? ["UI font size"] : []),
+      ...(settings.codeFontSizePx !== DEFAULT_UNIFIED_SETTINGS.codeFontSizePx
+        ? ["Code font size"]
+        : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -486,11 +499,15 @@ export function useSettingsRestore(onRestored?: () => void) {
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
+      settings.codeFontFamily,
+      settings.codeFontSizePx,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
       settings.timestampFormat,
       theme,
+      settings.uiFontFamily,
+      settings.uiFontSizePx,
     ],
   );
 
@@ -523,6 +540,14 @@ export function GeneralSettingsPanel() {
     keybindings: false,
     logsDirectory: false,
   });
+  const [uiFontFamilyDraft, setUiFontFamilyDraft] = useState(settings.uiFontFamily);
+  const [codeFontFamilyDraft, setCodeFontFamilyDraft] = useState(settings.codeFontFamily);
+  const [uiFontSizeDraft, setUiFontSizeDraft] = useState(
+    formatFontSizeInputValue(settings.uiFontSizePx),
+  );
+  const [codeFontSizeDraft, setCodeFontSizeDraft] = useState(
+    formatFontSizeInputValue(settings.codeFontSizePx),
+  );
   const [openPathErrorByTarget, setOpenPathErrorByTarget] = useState<
     Partial<Record<"keybindings" | "logsDirectory", string | null>>
   >({});
@@ -550,6 +575,23 @@ export function GeneralSettingsPanel() {
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
+
+  useEffect(() => {
+    setUiFontFamilyDraft(settings.uiFontFamily);
+  }, [settings.uiFontFamily]);
+
+  useEffect(() => {
+    setCodeFontFamilyDraft(settings.codeFontFamily);
+  }, [settings.codeFontFamily]);
+
+  useEffect(() => {
+    setUiFontSizeDraft(formatFontSizeInputValue(settings.uiFontSizePx));
+  }, [settings.uiFontSizePx]);
+
+  useEffect(() => {
+    setCodeFontSizeDraft(formatFontSizeInputValue(settings.codeFontSizePx));
+  }, [settings.codeFontSizePx]);
+
   const refreshProviders = useCallback(() => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
@@ -596,6 +638,56 @@ export function GeneralSettingsPanel() {
   const isGitWritingModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
+  );
+
+  const commitUiFontFamily = useCallback(
+    (value: string) => {
+      const nextValue = sanitizeFontFamily(value, DEFAULT_UNIFIED_SETTINGS.uiFontFamily);
+      setUiFontFamilyDraft(nextValue);
+      if (nextValue !== settings.uiFontFamily) {
+        updateSettings({ uiFontFamily: nextValue });
+      }
+    },
+    [settings.uiFontFamily, updateSettings],
+  );
+
+  const commitCodeFontFamily = useCallback(
+    (value: string) => {
+      const nextValue = sanitizeFontFamily(value, DEFAULT_UNIFIED_SETTINGS.codeFontFamily);
+      setCodeFontFamilyDraft(nextValue);
+      if (nextValue !== settings.codeFontFamily) {
+        updateSettings({ codeFontFamily: nextValue });
+      }
+    },
+    [settings.codeFontFamily, updateSettings],
+  );
+
+  const commitUiFontSize = useCallback(
+    (value: string) => {
+      const nextValue = sanitizeFontSizePx(
+        Number.parseFloat(value),
+        DEFAULT_UNIFIED_SETTINGS.uiFontSizePx,
+      );
+      setUiFontSizeDraft(formatFontSizeInputValue(nextValue));
+      if (nextValue !== settings.uiFontSizePx) {
+        updateSettings({ uiFontSizePx: nextValue });
+      }
+    },
+    [settings.uiFontSizePx, updateSettings],
+  );
+
+  const commitCodeFontSize = useCallback(
+    (value: string) => {
+      const nextValue = sanitizeFontSizePx(
+        Number.parseFloat(value),
+        DEFAULT_UNIFIED_SETTINGS.codeFontSizePx,
+      );
+      setCodeFontSizeDraft(formatFontSizeInputValue(nextValue));
+      if (nextValue !== settings.codeFontSizePx) {
+        updateSettings({ codeFontSizePx: nextValue });
+      }
+    },
+    [settings.codeFontSizePx, updateSettings],
   );
 
   const openInPreferredEditor = useCallback(
@@ -778,7 +870,7 @@ export function GeneralSettingsPanel() {
       : null;
   return (
     <SettingsPageContainer>
-      <SettingsSection title="General">
+      <SettingsSection title="Appearance">
         <SettingsRow
           title="Theme"
           description="Choose how T3 Code looks across the app."
@@ -812,6 +904,152 @@ export function GeneralSettingsPanel() {
           }
         />
 
+        <SettingsRow
+          title="UI font"
+          description="Used for interface labels, navigation, and standard controls."
+          resetAction={
+            settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? (
+              <SettingResetButton
+                label="UI font"
+                onClick={() =>
+                  updateSettings({
+                    uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Input
+              className="w-full sm:w-56"
+              value={uiFontFamilyDraft}
+              onChange={(event) => setUiFontFamilyDraft(event.target.value)}
+              onBlur={(event) => commitUiFontFamily(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitUiFontFamily(event.currentTarget.value);
+                event.currentTarget.blur();
+              }}
+              placeholder={DEFAULT_UNIFIED_SETTINGS.uiFontFamily}
+              spellCheck={false}
+              aria-label="UI font family"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Code font"
+          description="Used for terminals, code blocks, and monospace surfaces."
+          resetAction={
+            settings.codeFontFamily !== DEFAULT_UNIFIED_SETTINGS.codeFontFamily ? (
+              <SettingResetButton
+                label="code font"
+                onClick={() =>
+                  updateSettings({
+                    codeFontFamily: DEFAULT_UNIFIED_SETTINGS.codeFontFamily,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Input
+              className="w-full sm:w-56"
+              value={codeFontFamilyDraft}
+              onChange={(event) => setCodeFontFamilyDraft(event.target.value)}
+              onBlur={(event) => commitCodeFontFamily(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitCodeFontFamily(event.currentTarget.value);
+                event.currentTarget.blur();
+              }}
+              placeholder={DEFAULT_UNIFIED_SETTINGS.codeFontFamily}
+              spellCheck={false}
+              aria-label="Code font family"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="UI font size"
+          description={`Base size for interface text. Choose a value between ${MIN_FONT_SIZE_PX}px and ${MAX_FONT_SIZE_PX}px.`}
+          resetAction={
+            settings.uiFontSizePx !== DEFAULT_UNIFIED_SETTINGS.uiFontSizePx ? (
+              <SettingResetButton
+                label="UI font size"
+                onClick={() =>
+                  updateSettings({
+                    uiFontSizePx: DEFAULT_UNIFIED_SETTINGS.uiFontSizePx,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Input
+              nativeInput
+              type="number"
+              min={MIN_FONT_SIZE_PX}
+              max={MAX_FONT_SIZE_PX}
+              step={0.5}
+              className="w-full sm:w-32"
+              value={uiFontSizeDraft}
+              onChange={(event) => setUiFontSizeDraft(event.target.value)}
+              onBlur={(event) => commitUiFontSize(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitUiFontSize(event.currentTarget.value);
+                event.currentTarget.blur();
+              }}
+              inputMode="decimal"
+              aria-label="UI font size in pixels"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Code font size"
+          description={`Base size for code surfaces and terminals. Choose a value between ${MIN_FONT_SIZE_PX}px and ${MAX_FONT_SIZE_PX}px.`}
+          resetAction={
+            settings.codeFontSizePx !== DEFAULT_UNIFIED_SETTINGS.codeFontSizePx ? (
+              <SettingResetButton
+                label="code font size"
+                onClick={() =>
+                  updateSettings({
+                    codeFontSizePx: DEFAULT_UNIFIED_SETTINGS.codeFontSizePx,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Input
+              nativeInput
+              type="number"
+              min={MIN_FONT_SIZE_PX}
+              max={MAX_FONT_SIZE_PX}
+              step={0.5}
+              className="w-full sm:w-32"
+              value={codeFontSizeDraft}
+              onChange={(event) => setCodeFontSizeDraft(event.target.value)}
+              onBlur={(event) => commitCodeFontSize(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitCodeFontSize(event.currentTarget.value);
+                event.currentTarget.blur();
+              }}
+              inputMode="decimal"
+              aria-label="Code font size in pixels"
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title="General">
         <SettingsRow
           title="Time format"
           description="System default follows your browser or OS clock preference."

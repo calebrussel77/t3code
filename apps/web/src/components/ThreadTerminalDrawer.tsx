@@ -32,6 +32,7 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
+import { useSettings } from "../hooks/useSettings";
 import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalStateStore";
 
 const MIN_DRAWER_HEIGHT = 180;
@@ -220,6 +221,8 @@ interface TerminalViewportProps {
   autoFocus: boolean;
   resizeEpoch: number;
   drawerHeight: number;
+  codeFontFamily: string;
+  codeFontSizePx: number;
 }
 
 function TerminalViewport({
@@ -235,6 +238,8 @@ function TerminalViewport({
   autoFocus,
   resizeEpoch,
   drawerHeight,
+  codeFontFamily,
+  codeFontSizePx,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -265,9 +270,9 @@ function TerminalViewport({
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: 1.2,
-      fontSize: 12,
+      fontSize: codeFontSizePx,
       scrollback: 5_000,
-      fontFamily: '"SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+      fontFamily: `${codeFontFamily}, "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace`,
       theme: terminalThemeFromApp(),
     });
     terminal.loadAddon(fitAddon);
@@ -677,7 +682,7 @@ function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, runtimeEnv, terminalId, threadId]);
+  }, [codeFontFamily, codeFontSizePx, cwd, runtimeEnv, terminalId, threadId]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -794,6 +799,8 @@ export default function ThreadTerminalDrawer({
   onHeightChange,
   onAddTerminalContext,
 }: ThreadTerminalDrawerProps) {
+  const codeFontFamily = useSettings((settings) => settings.codeFontFamily);
+  const codeFontSizePx = useSettings((settings) => settings.codeFontSizePx);
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
   const [resizeEpoch, setResizeEpoch] = useState(0);
   const drawerHeightRef = useRef(drawerHeight);
@@ -1110,6 +1117,8 @@ export default function ThreadTerminalDrawer({
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
                         drawerHeight={drawerHeight}
+                        codeFontFamily={codeFontFamily}
+                        codeFontSizePx={codeFontSizePx}
                       />
                     </div>
                   </div>
@@ -1131,6 +1140,8 @@ export default function ThreadTerminalDrawer({
                   autoFocus
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
+                  codeFontFamily={codeFontFamily}
+                  codeFontSizePx={codeFontSizePx}
                 />
               </div>
             )}

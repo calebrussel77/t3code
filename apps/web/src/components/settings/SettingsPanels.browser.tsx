@@ -67,6 +67,22 @@ describe("GeneralSettingsPanel observability", () => {
       .toBeInTheDocument();
   });
 
+  it("shows appearance controls with the new default typography values", async () => {
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect.element(page.getByText("Appearance")).toBeInTheDocument();
+    await expect.element(page.getByLabelText("UI font family")).toHaveValue("Geist Mono");
+    await expect.element(page.getByLabelText("Code font family")).toHaveValue("JetBrains Mono");
+    await expect.element(page.getByLabelText("UI font size in pixels")).toHaveValue("13");
+    await expect.element(page.getByLabelText("Code font size in pixels")).toHaveValue("13.5");
+  });
+
   it("opens the logs folder in the preferred editor", async () => {
     const openInEditor = vi.fn<NativeApi["shell"]["openInEditor"]>().mockResolvedValue(undefined);
     window.nativeApi = {
