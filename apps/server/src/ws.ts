@@ -1,3 +1,6 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
 import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
   CommandId,
@@ -14,10 +17,12 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
+  SkillListError,
   ThreadId,
   type TerminalEvent,
   WS_METHODS,
   WsRpcGroup,
+  type ClaudeSkill,
 } from "@t3tools/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -554,6 +559,102 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             }),
           ),
           { "rpc.aggregate": "workspace" },
+        ),
+      [WS_METHODS.skillsList]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.skillsList,
+          Effect.tryPromise({
+            try: async () => {
+              const skillsMap = new Map<string, ClaudeSkill>();
+
+              const collectSkillsFromDir = async (
+                dir: string,
+                scope: "personal" | "project",
+              ) => {
+                try {
+                  const entries = await fs.readdir(dir, { withFileTypes: true });
+                  const candidates = entries.filter(
+                    (entry) => entry.isDirectory() || entry.isSymbolicLink(),
+                  );
+                  await Promise.all(
+                    candidates.map(async (entry) => {
+                      const skillMdPath = path.join(dir, entry.name, "SKILL.md");
+                      try {
+                        const content = await fs.readFile(skillMdPath, "utf-8");
+                        let name = entry.name;
+                        let description: string | undefined;
+
+                        const frontmatterMatch = /^---\s*\n([\s\S]*?)\n---/.exec(content);
+                        if (frontmatterMatch) {
+                          const fm = frontmatterMatch[1] ?? "";
+                          const nameMatch = /^name:\s*(.+)$/m.exec(fm);
+                          if (nameMatch) name = nameMatch[1]!.trim();
+
+                          const descMatch = /^description:\s*(.+)$/m.exec(fm);
+                          if (descMatch) {
+                            const val = descMatch[1]!.trim();
+                            if (val === ">" || val === "|") {
+                              const afterDesc = fm.slice(
+                                (descMatch.index ?? 0) + descMatch[0].length,
+                              );
+                              const lines: string[] = [];
+                              for (const line of afterDesc.split("\n")) {
+                                if (/^\s+\S/.test(line)) {
+                                  lines.push(line.trim());
+                                } else if (lines.length > 0) {
+                                  break;
+                                }
+                              }
+                              if (lines.length > 0) {
+                                description = lines.join(" ");
+                              }
+                            } else {
+                              description = val;
+                            }
+                          }
+                        } else {
+                          const headingMatch = /^#\s+(.+)$/m.exec(content);
+                          if (headingMatch) description = headingMatch[1]!.trim();
+                        }
+
+                        skillsMap.set(name, { name, path: skillMdPath, description, scope });
+                      } catch {
+                        // No SKILL.md in this directory, skip
+                      }
+                    }),
+                  );
+                } catch {
+                  // Directory doesn't exist, skip
+                }
+              };
+
+              // Global skills: .claude for claudeAgent, .agents for codex
+              const globalBaseDir =
+                input.provider === "codex"
+                  ? path.join(os.homedir(), ".agents", "skills")
+                  : path.join(os.homedir(), ".claude", "skills");
+              await collectSkillsFromDir(globalBaseDir, "personal");
+
+              // Project-level skills (override global): .claude for claudeAgent, .agents for codex
+              const cwd = input.cwd;
+              if (cwd) {
+                const projectBaseDir =
+                  input.provider === "codex" ? ".agents" : ".claude";
+                const projectSkillsDir = path.join(cwd, projectBaseDir, "skills");
+                await collectSkillsFromDir(projectSkillsDir, "project");
+              }
+
+              const skills = Array.from(skillsMap.values()).sort((a, b) =>
+                a.name.localeCompare(b.name),
+              );
+              return { skills };
+            },
+            catch: (err) =>
+              new SkillListError({
+                message: `Failed to list skills: ${String(err)}`,
+              }),
+          }),
+          { "rpc.aggregate": "skills" },
         ),
       [WS_METHODS.shellOpenInEditor]: (input) =>
         observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {

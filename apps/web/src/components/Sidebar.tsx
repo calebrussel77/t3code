@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
+  EllipsisIcon,
   FolderClosed,
   FolderOpenIcon,
   GitPullRequestIcon,
@@ -644,7 +645,6 @@ function SortableProjectItem({
     transform,
     transition,
     isDragging,
-    isOver,
   } = useSortable({ id: projectId, disabled });
   return (
     <li
@@ -654,8 +654,8 @@ function SortableProjectItem({
         transition,
       }}
       className={`group/menu-item relative rounded-md ${
-        isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
+        isDragging ? "z-20 opacity-50" : ""
+      }`}
       data-sidebar="menu-item"
       data-slot="sidebar-menu-item"
     >
@@ -1311,43 +1311,30 @@ export default function Sidebar() {
 
   const handleProjectDragEnd = useCallback(
     (event: DragEndEvent) => {
-      if (appSettings.sidebarProjectSortOrder !== "manual") {
-        dragInProgressRef.current = false;
-        return;
-      }
       dragInProgressRef.current = false;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
       const activeProject = sidebarProjects.find((project) => project.id === active.id);
       const overProject = sidebarProjects.find((project) => project.id === over.id);
       if (!activeProject || !overProject) return;
+      if (appSettings.sidebarProjectSortOrder !== "manual") {
+        updateSettings({ sidebarProjectSortOrder: "manual" });
+      }
       reorderProjects(activeProject.id, overProject.id);
     },
-    [appSettings.sidebarProjectSortOrder, reorderProjects, sidebarProjects],
+    [appSettings.sidebarProjectSortOrder, reorderProjects, sidebarProjects, updateSettings],
   );
 
   const handleProjectDragStart = useCallback(
-    (_event: DragStartEvent) => {
-      if (appSettings.sidebarProjectSortOrder !== "manual") {
-        return;
-      }
+    (event: DragStartEvent) => {
       dragInProgressRef.current = true;
       suppressProjectClickAfterDragRef.current = true;
     },
-    [appSettings.sidebarProjectSortOrder],
+    [],
   );
 
   const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
     dragInProgressRef.current = false;
-  }, []);
-
-  const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
-  const attachProjectListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
-    if (!node || animatedProjectListsRef.current.has(node)) {
-      return;
-    }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedProjectListsRef.current.add(node);
   }, []);
 
   const animatedThreadListsRef = useRef(new WeakSet<HTMLElement>());
@@ -1387,7 +1374,6 @@ export default function Sidebar() {
       sortProjectsForSidebar(sidebarProjects, visibleThreads, appSettings.sidebarProjectSortOrder),
     [appSettings.sidebarProjectSortOrder, sidebarProjects, visibleThreads],
   );
-  const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
@@ -1583,13 +1569,11 @@ export default function Sidebar() {
       <>
         <div className="group/project-header relative">
           <SidebarMenuButton
-            ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
+            ref={dragHandleProps?.setActivatorNodeRef}
             size="sm"
-            className={`gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground ${
-              isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-            }`}
-            {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
-            {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
+            className="gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground cursor-grab active:cursor-grabbing"
+            {...(dragHandleProps ? dragHandleProps.attributes : {})}
+            {...(dragHandleProps ? dragHandleProps.listeners : {})}
             onPointerDownCapture={handleProjectTitlePointerDownCapture}
             onClick={(event) => handleProjectTitleClick(event, project.id)}
             onKeyDown={(event) => handleProjectTitleKeyDown(event, project.id)}
@@ -1609,6 +1593,27 @@ export default function Sidebar() {
             )}
             <span className="flex-1 text-sm truncate text-foreground/90">{project.name}</span>
           </SidebarMenuButton>
+          <SidebarMenuAction
+            render={
+              <button
+                type="button"
+                aria-label={`Project options for ${project.name}`}
+              />
+            }
+            showOnHover
+            className="top-1 right-7 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+              void handleProjectContextMenu(project.id, {
+                x: rect.left,
+                y: rect.bottom,
+              });
+            }}
+          >
+            <EllipsisIcon className="size-3.5" />
+          </SidebarMenuAction>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -2096,44 +2101,34 @@ export default function Sidebar() {
                   </div>
                 )}
 
-                {isManualProjectSorting ? (
-                  <DndContext
-                    sensors={projectDnDSensors}
-                    collisionDetection={projectCollisionDetection}
-                    modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                    onDragStart={handleProjectDragStart}
-                    onDragEnd={handleProjectDragEnd}
-                    onDragCancel={handleProjectDragCancel}
-                  >
-                    <SidebarMenu>
-                      <SortableContext
-                        items={renderedProjects.map(
-                          (renderedProject) => renderedProject.project.id,
-                        )}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        {renderedProjects.map((renderedProject) => (
-                          <SortableProjectItem
-                            key={renderedProject.project.id}
-                            projectId={renderedProject.project.id}
-                          >
-                            {(dragHandleProps) =>
-                              renderProjectItem(renderedProject, dragHandleProps)
-                            }
-                          </SortableProjectItem>
-                        ))}
-                      </SortableContext>
-                    </SidebarMenu>
-                  </DndContext>
-                ) : (
-                  <SidebarMenu ref={attachProjectListAutoAnimateRef}>
-                    {renderedProjects.map((renderedProject) => (
-                      <SidebarMenuItem key={renderedProject.project.id} className="rounded-md">
-                        {renderProjectItem(renderedProject, null)}
-                      </SidebarMenuItem>
-                    ))}
+                <DndContext
+                  sensors={projectDnDSensors}
+                  collisionDetection={projectCollisionDetection}
+                  modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                  onDragStart={handleProjectDragStart}
+                  onDragEnd={handleProjectDragEnd}
+                  onDragCancel={handleProjectDragCancel}
+                >
+                  <SidebarMenu>
+                    <SortableContext
+                      items={renderedProjects.map(
+                        (renderedProject) => renderedProject.project.id,
+                      )}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {renderedProjects.map((renderedProject) => (
+                        <SortableProjectItem
+                          key={renderedProject.project.id}
+                          projectId={renderedProject.project.id}
+                        >
+                          {(dragHandleProps) =>
+                            renderProjectItem(renderedProject, dragHandleProps)
+                          }
+                        </SortableProjectItem>
+                      ))}
+                    </SortableContext>
                   </SidebarMenu>
-                )}
+                </DndContext>
 
                 {projects.length === 0 && !shouldShowProjectPathEntry && (
                   <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">

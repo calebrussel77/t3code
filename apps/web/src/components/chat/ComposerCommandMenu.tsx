@@ -1,7 +1,7 @@
 import { type ProjectEntry, type ProviderKind } from "@t3tools/contracts";
 import { memo, useLayoutEffect, useRef } from "react";
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
-import { BotIcon } from "lucide-react";
+import { BotIcon, WandSparklesIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Command, CommandItem, CommandList } from "../ui/command";
@@ -28,6 +28,15 @@ export type ComposerCommandItem =
       type: "model";
       provider: ProviderKind;
       model: string;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "skill";
+      skillName: string;
+      skillPath: string;
+      skillScope: "personal" | "project" | undefined;
       label: string;
       description: string;
     };
@@ -80,10 +89,14 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         {props.items.length === 0 && (
           <p className="px-3 py-2 text-muted-foreground/70 text-xs">
             {props.isLoading
-              ? "Searching workspace files..."
+              ? props.triggerKind === "skill"
+                ? "Loading skills..."
+                : "Searching workspace files..."
               : props.triggerKind === "path"
                 ? "No matching files or folders."
-                : "No matching command."}
+                : props.triggerKind === "skill"
+                  ? "No matching skills."
+                  : "No matching command."}
           </p>
         )}
       </div>
@@ -131,10 +144,29 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           model
         </Badge>
       ) : null}
-      <span className="flex min-w-0 items-center gap-1.5 truncate">
-        <span className="truncate">{props.item.label}</span>
-      </span>
-      <span className="truncate text-muted-foreground/70 text-xs">{props.item.description}</span>
+      {props.item.type === "skill" ? (
+        <WandSparklesIcon className="size-4 shrink-0 text-purple-500" />
+      ) : null}
+      {props.item.type !== "skill" ? (
+        <>
+          <span className="flex min-w-0 items-center gap-1.5 truncate">
+            <span className="truncate">{props.item.label}</span>
+          </span>
+          <span className="truncate text-muted-foreground/70 text-xs">
+            {props.item.description}
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="shrink-0 font-medium">{props.item.label}</span>
+          <span className="min-w-0 truncate text-muted-foreground/70 text-xs">
+            {props.item.description}
+          </span>
+          <Badge variant="outline" className="ml-auto shrink-0 px-1.5 py-0 text-[10px]">
+            {props.item.skillScope === "project" ? "Project" : "Personal"}
+          </Badge>
+        </>
+      )}
     </CommandItem>
   );
 });

@@ -22,6 +22,7 @@ import type {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
+import type { SkillListInput, SkillListResult } from "./skill";
 import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
@@ -138,6 +139,9 @@ export interface NativeApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+  };
+  skills: {
+    list: (input: SkillListInput) => Promise<SkillListResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
