@@ -742,6 +742,182 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("prefers tool result output over generic payload detail for command entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-with-output",
+        kind: "tool.completed",
+        summary: "Ran command for 4s",
+        payload: {
+          itemType: "command_execution",
+          title: "bash",
+          detail: "Ran command",
+          data: {
+            item: {
+              command: ["bun", "typecheck"],
+              result: {
+                output: [
+                  "@t3tools/web:typecheck: $ tsc --noEmit",
+                  "@t3tools/scripts:typecheck: $ tsc --noEmit",
+                ],
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      command: "bun typecheck",
+      detail: [
+        "@t3tools/web:typecheck: $ tsc --noEmit",
+        "@t3tools/scripts:typecheck: $ tsc --noEmit",
+      ].join("\n"),
+      itemType: "command_execution",
+      toolTitle: "bash",
+    });
+  });
+
+  it("prefers buffered activity output over generic command detail", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-with-buffered-output",
+        kind: "tool.completed",
+        summary: "Ran command for 4s",
+        payload: {
+          itemType: "command_execution",
+          title: "Ran command",
+          detail: "Ran command",
+          output: '{\n  "name": "@t3tools/monorepo"\n}',
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      detail: '{\n  "name": "@t3tools/monorepo"\n}',
+      itemType: "command_execution",
+      toolTitle: "Ran command",
+    });
+  });
+
+  it("extracts tool output from Claude data.result with content block array", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-read-tool",
+        kind: "tool.completed",
+        summary: "Read src/index.ts",
+        payload: {
+          itemType: "dynamic_tool_call",
+          requestKind: "file-read",
+          title: "Read",
+          data: {
+            toolName: "Read",
+            input: { file_path: "src/index.ts" },
+            result: {
+              type: "tool_result",
+              tool_use_id: "toolu_abc123",
+              content: [
+                { type: "text", text: 'import { app } from "./app";\nconsole.log("hello");' },
+              ],
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      detail: 'import { app } from "./app";\nconsole.log("hello");',
+      requestKind: "file-read",
+      toolTitle: "Read",
+    });
+  });
+
+  it("extracts tool output from Claude data.result with plain string content", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-bash-tool",
+        kind: "tool.completed",
+        summary: "Ran npm test",
+        payload: {
+          itemType: "command_execution",
+          requestKind: "command",
+          title: "bash",
+          data: {
+            toolName: "Bash",
+            input: { command: "npm test" },
+            result: {
+              type: "tool_result",
+              tool_use_id: "toolu_def456",
+              content: "All tests passed\n3 suites, 12 tests",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      detail: "All tests passed\n3 suites, 12 tests",
+      requestKind: "command",
+    });
+  });
+
+  it("merges command execution updates and completions by item id", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-update",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "Ran command",
+        payload: {
+          itemType: "command_execution",
+          itemId: "item-command-1",
+          title: "Ran command",
+          detail: "bun typecheck",
+        },
+      }),
+      makeActivity({
+        id: "command-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Ran command for 4s",
+        payload: {
+          itemType: "command_execution",
+          itemId: "item-command-1",
+          title: "Ran command",
+          detail: "Ran command",
+          data: {
+            item: {
+              result: {
+                output: [
+                  "@t3tools/desktop:typecheck: $ tsc --noEmit",
+                  "@t3tools/web:typecheck: $ tsc --noEmit",
+                ],
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "command-complete",
+      command: "bun typecheck",
+      detail: [
+        "@t3tools/desktop:typecheck: $ tsc --noEmit",
+        "@t3tools/web:typecheck: $ tsc --noEmit",
+      ].join("\n"),
+      itemType: "command_execution",
+      toolTitle: "Ran command",
+    });
+  });
+
   it("extracts changed file paths for file-change tool activities", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

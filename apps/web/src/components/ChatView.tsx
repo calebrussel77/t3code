@@ -1,24 +1,24 @@
 import {
-  type ApprovalRequestId,
-  DEFAULT_MODEL_BY_PROVIDER,
-  type ClaudeCodeEffort,
-  type MessageId,
-  type ModelSelection,
-  type ProjectScript,
-  type ProviderKind,
-  type ProjectEntry,
-  type ProjectId,
-  type ProviderApprovalDecision,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-  type ServerProvider,
-  type ThreadId,
-  type TurnId,
-  type KeybindingCommand,
-  OrchestrationThreadActivity,
-  ProviderInteractionMode,
-  RuntimeMode,
-  TerminalOpenInput,
+    type ApprovalRequestId,
+    DEFAULT_MODEL_BY_PROVIDER,
+    type ClaudeCodeEffort,
+    type MessageId,
+    type ModelSelection,
+    type ProjectScript,
+    type ProviderKind,
+    type ProjectEntry,
+    type ProjectId,
+    type ProviderApprovalDecision,
+    PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+    PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+    type ServerProvider,
+    type ThreadId,
+    type TurnId,
+    type KeybindingCommand,
+    OrchestrationThreadActivity,
+    ProviderInteractionMode,
+    RuntimeMode,
+    TerminalOpenInput,
 } from "@t3tools/contracts";
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
@@ -32,55 +32,55 @@ import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
-  clampCollapsedComposerCursor,
-  type ComposerTrigger,
-  collapseExpandedComposerCursor,
-  detectComposerTrigger,
-  expandCollapsedComposerCursor,
-  parseStandaloneComposerSlashCommand,
-  replaceTextRange,
+    clampCollapsedComposerCursor,
+    type ComposerTrigger,
+    collapseExpandedComposerCursor,
+    detectComposerTrigger,
+    expandCollapsedComposerCursor,
+    parseStandaloneComposerSlashCommand,
+    replaceTextRange,
 } from "../composer-logic";
 import {
-  deriveCompletionDividerBeforeEntryId,
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  derivePhase,
-  deriveTimelineEntries,
-  deriveActiveWorkStartedAt,
-  deriveActivePlanState,
-  findSidebarProposedPlan,
-  findLatestProposedPlan,
-  deriveWorkLogEntries,
-  hasActionableProposedPlan,
-  hasToolActivityForTurn,
-  isLatestTurnSettled,
-  formatElapsed,
+    deriveCompletionDividerBeforeEntryId,
+    derivePendingApprovals,
+    derivePendingUserInputs,
+    derivePhase,
+    deriveTimelineEntries,
+    deriveActiveWorkStartedAt,
+    deriveActivePlanState,
+    findSidebarProposedPlan,
+    findLatestProposedPlan,
+    deriveWorkLogEntries,
+    hasActionableProposedPlan,
+    hasToolActivityForTurn,
+    isLatestTurnSettled,
+    formatElapsed,
 } from "../session-logic";
 import { isScrollContainerNearBottom } from "../chat-scroll";
 import {
-  buildPendingUserInputAnswers,
-  derivePendingUserInputProgress,
-  setPendingUserInputCustomAnswer,
-  type PendingUserInputDraftAnswer,
+    buildPendingUserInputAnswers,
+    derivePendingUserInputProgress,
+    setPendingUserInputCustomAnswer,
+    type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import {
-  buildPlanImplementationThreadTitle,
-  buildPlanImplementationPrompt,
-  proposedPlanTitle,
-  resolvePlanFollowUpSubmission,
+    buildPlanImplementationThreadTitle,
+    buildPlanImplementationPrompt,
+    proposedPlanTitle,
+    resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import {
-  DEFAULT_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  DEFAULT_THREAD_TERMINAL_ID,
-  MAX_TERMINALS_PER_GROUP,
-  type ChatMessage,
-  type SessionPhase,
-  type Thread,
-  type TurnDiffSummary,
+    DEFAULT_INTERACTION_MODE,
+    DEFAULT_RUNTIME_MODE,
+    DEFAULT_THREAD_TERMINAL_ID,
+    MAX_TERMINALS_PER_GROUP,
+    type ChatMessage,
+    type SessionPhase,
+    type Thread,
+    type TurnDiffSummary,
 } from "../types";
 import { LRUCache } from "../lib/lruCache";
 
@@ -92,15 +92,15 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
-  BotIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  CircleAlertIcon,
-  ListTodoIcon,
-  LockIcon,
-  LockOpenIcon,
-  XIcon,
+    BotIcon,
+    ChevronDownIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    CircleAlertIcon,
+    ListTodoIcon,
+    LockIcon,
+    LockOpenIcon,
+    XIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -110,43 +110,43 @@ import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
-  commandForProjectScript,
-  nextProjectScriptId,
-  projectScriptIdFromCommand,
+    commandForProjectScript,
+    nextProjectScriptId,
+    projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
-  getProviderModelCapabilities,
-  getProviderModels,
-  resolveSelectableProvider,
+    getProviderModelCapabilities,
+    getProviderModels,
+    resolveSelectableProvider,
 } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
-  type ComposerImageAttachment,
-  type DraftThreadEnvMode,
-  type PersistedComposerImageAttachment,
-  useComposerDraftStore,
-  useEffectiveComposerModelState,
-  useComposerThreadDraft,
+    type ComposerImageAttachment,
+    type DraftThreadEnvMode,
+    type PersistedComposerImageAttachment,
+    useComposerDraftStore,
+    useEffectiveComposerModelState,
+    useComposerThreadDraft,
 } from "../composerDraftStore";
 import {
-  appendTerminalContextsToPrompt,
-  formatTerminalContextLabel,
-  insertInlineTerminalContextPlaceholder,
-  removeInlineTerminalContextPlaceholder,
-  type TerminalContextDraft,
-  type TerminalContextSelection,
+    appendTerminalContextsToPrompt,
+    formatTerminalContextLabel,
+    insertInlineTerminalContextPlaceholder,
+    removeInlineTerminalContextPlaceholder,
+    type TerminalContextDraft,
+    type TerminalContextSelection,
 } from "../lib/terminalContext";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import {
-  resolveComposerFooterContentWidth,
-  shouldForceCompactComposerFooterForFit,
-  shouldUseCompactComposerPrimaryActions,
-  shouldUseCompactComposerFooter,
+    resolveComposerFooterContentWidth,
+    shouldForceCompactComposerFooterForFit,
+    shouldUseCompactComposerPrimaryActions,
+    shouldUseCompactComposerFooter,
 } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
@@ -164,38 +164,38 @@ import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPane
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
 import {
-  getComposerProviderState,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
+    getComposerProviderState,
+    renderProviderTraitsMenuContent,
+    renderProviderTraitsPicker,
 } from "./chat/composerProviderRegistry";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
-  MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
-  buildExpiredTerminalContextToastCopy,
-  buildLocalDraftThread,
-  buildTemporaryWorktreeBranchName,
-  cloneComposerImageForRetry,
-  collectUserMessageBlobPreviewUrls,
-  createLocalDispatchSnapshot,
-  deriveComposerSendState,
-  hasServerAcknowledgedLocalDispatch,
-  LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
-  LastInvokedScriptByProjectSchema,
-  type LocalDispatchSnapshot,
-  PullRequestDialogState,
-  readFileAsDataUrl,
-  reconcileMountedTerminalThreadIds,
-  revokeBlobPreviewUrl,
-  revokeUserMessagePreviewUrls,
-  threadHasStarted,
-  waitForStartedServerThread,
+    MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+    buildExpiredTerminalContextToastCopy,
+    buildLocalDraftThread,
+    buildTemporaryWorktreeBranchName,
+    cloneComposerImageForRetry,
+    collectUserMessageBlobPreviewUrls,
+    createLocalDispatchSnapshot,
+    deriveComposerSendState,
+    hasServerAcknowledgedLocalDispatch,
+    LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
+    LastInvokedScriptByProjectSchema,
+    type LocalDispatchSnapshot,
+    PullRequestDialogState,
+    readFileAsDataUrl,
+    reconcileMountedTerminalThreadIds,
+    revokeBlobPreviewUrl,
+    revokeUserMessagePreviewUrls,
+    threadHasStarted,
+    waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
-  useServerAvailableEditors,
-  useServerConfig,
-  useServerKeybindings,
+    useServerAvailableEditors,
+    useServerConfig,
+    useServerKeybindings,
 } from "~/rpc/serverState";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
@@ -4022,11 +4022,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
           </div>
 
           {/* Input bar */}
-          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+          <div className={cn("px-3 sm:px-5", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
             <form
               ref={composerFormRef}
               onSubmit={onSend}
-              className="mx-auto w-full min-w-0 max-w-[52rem]"
+              className="mx-auto w-full min-w-0 max-w-3xl"
               data-chat-composer-form="true"
             >
               <div
@@ -4041,7 +4041,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               >
                 <div
                   className={cn(
-                    "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
+                    "rounded-[20px] shadow-lg border bg-card transition-colors duration-200",
                     isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
@@ -4074,8 +4074,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   ) : null}
                   <div
                     className={cn(
-                      "relative px-3 pb-2 sm:px-4",
-                      hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                      "relative px-3 pb-1.5 sm:px-4",
+                      hasComposerHeader ? "pt-2 sm:pt-2.5" : "pt-2.5 sm:pt-3",
                     )}
                   >
                     {composerMenuOpen && !isComposerApprovalState && (
@@ -4213,7 +4213,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       data-chat-composer-footer="true"
                       data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                       className={cn(
-                        "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-hidden px-2.5 pb-2.5 sm:px-3 sm:pb-3",
+                        "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-hidden px-2.5 pb-2 text-xs sm:px-3 sm:pb-2.5",
                         isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                       )}
                     >
@@ -4262,7 +4262,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               <>
                                 <Separator
                                   orientation="vertical"
-                                  className="mx-0.5 hidden h-4 sm:block"
+                                  className="mx-0.5 hidden h-3.5 sm:block"
                                 />
                                 {providerTraitsPicker}
                               </>
@@ -4270,13 +4270,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
                             <Separator
                               orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
+                              className="mx-0.5 hidden h-3.5 sm:block"
                             />
 
                             <Button
                               variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                              size="sm"
+                              className="shrink-0 whitespace-nowrap px-1.5 text-muted-foreground/70 hover:text-foreground/80 sm:px-2"
+                              size="xs"
                               type="button"
                               onClick={toggleInteractionMode}
                               title={
@@ -4293,13 +4293,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
                             <Separator
                               orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
+                              className="mx-0.5 hidden h-3.5 sm:block"
                             />
 
                             <Button
                               variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                              size="sm"
+                              className="shrink-0 whitespace-nowrap px-1.5 text-muted-foreground/70 hover:text-foreground/80 sm:px-2"
+                              size="xs"
                               type="button"
                               onClick={() =>
                                 void handleRuntimeModeChange(
@@ -4324,17 +4324,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               <>
                                 <Separator
                                   orientation="vertical"
-                                  className="mx-0.5 hidden h-4 sm:block"
+                                  className="mx-0.5 hidden h-3.5 sm:block"
                                 />
                                 <Button
                                   variant="ghost"
                                   className={cn(
-                                    "shrink-0 whitespace-nowrap px-2 sm:px-3",
+                                    "shrink-0 whitespace-nowrap px-1.5 sm:px-2",
                                     planSidebarOpen
                                       ? "text-blue-400 hover:text-blue-300"
                                       : "text-muted-foreground/70 hover:text-foreground/80",
                                   )}
-                                  size="sm"
+                                  size="xs"
                                   type="button"
                                   onClick={togglePlanSidebar}
                                   title={

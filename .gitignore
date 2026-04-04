@@ -15,9 +15,13 @@ release/
 release-mock/
 .t3
 .idea/
+.history
 apps/web/.playwright
 apps/web/playwright-report
 apps/web/src/components/__screenshots__
 .vitest-*
 __screenshots__/
 .tanstack
+
+# opensrc - source code for packages
+opensrc/

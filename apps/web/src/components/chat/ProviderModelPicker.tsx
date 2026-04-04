@@ -96,12 +96,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       <MenuTrigger
         render={
           <Button
-            size="sm"
+            size="xs"
             variant={props.triggerVariant ?? "ghost"}
             data-chat-provider-model-picker="true"
             className={cn(
-              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 [&_svg]:mx-0",
-              props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-3",
+              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-1.5 text-muted-foreground/70 hover:text-foreground/80 [&_svg]:mx-0",
+              props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-2",
               props.triggerClassName,
             )}
             disabled={props.disabled}

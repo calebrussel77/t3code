@@ -19,6 +19,7 @@ import type {
   ThreadSession,
   TurnDiffSummary,
 } from "./types";
+import { normalizeCompactToolLabel } from "./workLogEntry";
 
 export type ProviderPickerKind = ProviderKind | "cursor";
 
@@ -48,6 +49,7 @@ export interface WorkLogEntry {
 interface DerivedWorkLogEntry extends WorkLogEntry {
   activityKind: OrchestrationThreadActivity["kind"];
   collapseKey?: string;
+  toolItemId?: string;
 }
 
 export interface PendingApproval {
@@ -501,11 +503,14 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
-  if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
-    const detail = stripTrailingExitCode(payload.detail).output;
-    if (detail) {
-      entry.detail = detail;
-    }
+  const toolItemId = extractWorkLogItemId(payload);
+  const detail =
+    extractToolOutput(payload) ??
+    (payload && typeof payload.detail === "string" && payload.detail.length > 0
+      ? stripTrailingExitCode(payload.detail).output
+      : null);
+  if (detail) {
+    entry.detail = detail;
   }
   if (command) {
     entry.command = command;
@@ -521,6 +526,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (requestKind) {
     entry.requestKind = requestKind;
+  }
+  if (toolItemId) {
+    entry.toolItemId = toolItemId;
   }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
@@ -599,6 +607,9 @@ function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | un
   if (entry.activityKind !== "tool.updated" && entry.activityKind !== "tool.completed") {
     return undefined;
   }
+  if (entry.toolItemId) {
+    return `item:${entry.toolItemId}`;
+  }
   const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
   const detail = entry.detail?.trim() ?? "";
   const itemType = entry.itemType ?? "";
@@ -606,10 +617,6 @@ function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | un
     return undefined;
   }
   return [itemType, normalizedLabel, detail].join("\u001f");
-}
-
-function normalizeCompactToolLabel(value: string): string {
-  return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
 }
 
 function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPlanState {
@@ -655,13 +662,78 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
+  const detailCandidate =
+    payload?.itemType === "command_execution" ? normalizeCommandDetail(payload?.detail) : null;
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
+    detailCandidate,
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
+function normalizeCommandDetail(value: unknown): string | null {
+  const detail = asTrimmedString(value);
+  if (!detail) {
+    return null;
+  }
+  if (
+    /^ran command(?:\s+for\s+\d+(?:\.\d+)?s)?$/i.test(detail) ||
+    /^command(?:\s+completed)?$/i.test(detail)
+  ) {
+    return null;
+  }
+  return stripTrailingExitCode(detail).output;
+}
+
+function normalizeOutputValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    return stripTrailingExitCode(value).output;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const parts = value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return stripTrailingExitCode(entry).output;
+      }
+      if (entry && typeof entry === "object" && typeof (entry as { text?: unknown }).text === "string") {
+        return stripTrailingExitCode((entry as { text: string }).text).output;
+      }
+      return null;
+    })
+    .filter((entry): entry is string => entry !== null);
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+function joinOutputSegments(values: Array<string | null>): string | null {
+  const parts = values.filter((value): value is string => value !== null);
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+function outputFromSource(source: Record<string, unknown> | null): string | null {
+  if (!source) return null;
+  return (
+    normalizeOutputValue(source.content) ??
+    normalizeOutputValue(source.output) ??
+    joinOutputSegments([
+      normalizeOutputValue(source.stdout),
+      normalizeOutputValue(source.stderr),
+    ])
+  );
+}
+
+function extractToolOutput(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  return (
+    outputFromSource(asRecord(item?.result)) ??
+    outputFromSource(asRecord(data?.result)) ??
+    outputFromSource(payload)
+  );
 }
 
 function extractToolTitle(payload: Record<string, unknown> | null): string | null {
@@ -696,6 +768,12 @@ function extractWorkLogItemType(
     return payload.itemType;
   }
   return undefined;
+}
+
+function extractWorkLogItemId(payload: Record<string, unknown> | null): string | undefined {
+  return typeof payload?.itemId === "string" && payload.itemId.length > 0
+    ? payload.itemId
+    : undefined;
 }
 
 function extractWorkLogRequestKind(

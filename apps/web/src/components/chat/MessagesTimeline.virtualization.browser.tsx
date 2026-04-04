@@ -108,12 +108,14 @@ function createToolWorkEntry(input: {
   offsetSeconds: number;
   label?: string;
   detail?: string;
+  command?: string;
 }): WorkLogEntry {
   return {
     id: input.id,
     createdAt: isoAt(input.offsetSeconds),
     label: input.label ?? "exec_command completed",
     ...(input.detail ? { detail: input.detail } : {}),
+    ...(input.command ? { command: input.command } : {}),
     tone: "tool",
     toolTitle: "exec_command",
   };
@@ -808,6 +810,102 @@ describe("MessagesTimeline virtualization harness", () => {
       expect(
         Math.abs(afterExpand.actualHeightPx - afterExpand.virtualizerSizePx),
       ).toBeLessThanOrEqual(8);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the work-log row virtualizer size in sync after expanding a command panel", async () => {
+    const beforeMessages = createFillerMessages({
+      prefix: "before-work-entry-expand",
+      startOffsetSeconds: 0,
+      pairCount: 2,
+    });
+    const afterMessages = createFillerMessages({
+      prefix: "after-work-entry-expand",
+      startOffsetSeconds: 40,
+      pairCount: 8,
+    });
+    const workEntries = [
+      createToolWorkEntry({
+        id: "target-work-entry-expand-0",
+        offsetSeconds: 12,
+        label: "Ran command for 4s",
+        command:
+          "git show HEAD:apps/web/src/components/Sidebar.tsx | Select-Object -Skip 1400 -First 40",
+        detail: [
+          "});",
+          "const projectThreads = sortThreadsForSidebar(",
+          "  (threadIdsByProjectId[project.id] ?? [])",
+          "    .map((threadId) => sidebarThreadsById[threadId])",
+        ].join("\n"),
+      }),
+      createToolWorkEntry({
+        id: "target-work-entry-expand-1",
+        offsetSeconds: 13,
+        label: "Ran command for 1s",
+        command: "git status --short",
+        detail: "M apps/web/src/components/chat/MessagesTimeline.tsx",
+      }),
+    ];
+    const props = createBaseTimelineProps({
+      messages: [...beforeMessages, ...afterMessages],
+      workEntries,
+    });
+    const mounted = await mountMessagesTimeline({ props });
+
+    try {
+      const beforeExpand = await measureTimelineRow({
+        host: mounted.host,
+        props,
+        targetRowId: workEntries[0]!.id,
+      });
+      const targetRowElement = mounted.host.querySelector<HTMLElement>(
+        `[data-timeline-row-id="${workEntries[0]!.id}"]`,
+      );
+      expect(targetRowElement, "Unable to locate target work-log row.").toBeTruthy();
+
+      const commandToggle = targetRowElement!.querySelector<HTMLButtonElement>(
+        `[data-work-entry-toggle="${workEntries[0]!.id}"]`,
+      );
+      expect(commandToggle, "Unable to locate work-entry toggle button.").toBeTruthy();
+
+      commandToggle!.click();
+
+      await vi.waitFor(
+        async () => {
+          const afterExpand = await measureTimelineRow({
+            host: mounted.host,
+            props,
+            targetRowId: workEntries[0]!.id,
+          });
+          expect(afterExpand.actualHeightPx).toBeGreaterThan(beforeExpand.actualHeightPx + 120);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const afterExpand = await measureTimelineRow({
+        host: mounted.host,
+        props,
+        targetRowId: workEntries[0]!.id,
+      });
+      expect(
+        Math.abs(afterExpand.actualHeightPx - afterExpand.virtualizerSizePx),
+      ).toBeLessThanOrEqual(8);
+
+      commandToggle!.click();
+
+      await vi.waitFor(
+        async () => {
+          const afterCollapse = await measureTimelineRow({
+            host: mounted.host,
+            props,
+            targetRowId: workEntries[0]!.id,
+          });
+          expect(afterCollapse.actualHeightPx).toBeLessThan(afterExpand.actualHeightPx - 120);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }

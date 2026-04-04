@@ -22,7 +22,9 @@ import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
   CheckIcon,
+  ChevronDownIcon,
   CircleAlertIcon,
+  CopyIcon,
   EyeIcon,
   GlobeIcon,
   HammerIcon,
@@ -44,15 +46,16 @@ import {
   MAX_VISIBLE_WORK_LOG_ENTRIES,
   deriveMessagesTimelineRows,
   estimateMessagesTimelineRowHeight,
-  normalizeCompactToolLabel,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import {
@@ -60,6 +63,15 @@ import {
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
+import {
+  toolWorkEntryHeading,
+  workEntryHasExpandableContent,
+  workEntryPanelLabel,
+  workEntryOutputBody,
+  workEntryPreview,
+  workEntryStatusLabel,
+  workEntrySummary,
+} from "../../workLogEntry";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
@@ -124,6 +136,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+  const [expandedWorkEntries, setExpandedWorkEntries] = useState<Record<string, boolean>>({});
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -220,6 +233,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (!row) return 96;
       return estimateMessagesTimelineRowHeight(row, {
         expandedWorkGroups,
+        expandedWorkEntries,
         timelineWidthPx,
         turnDiffSummaryByAssistantMessageId,
       });
@@ -232,6 +246,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (timelineWidthPx === null) return;
     rowVirtualizer.measure();
   }, [rowVirtualizer, timelineWidthPx]);
+  useEffect(() => {
+    const measureAfterTransition = window.setTimeout(() => {
+      rowVirtualizer.measure();
+    }, 220);
+    rowVirtualizer.measure();
+    return () => {
+      window.clearTimeout(measureAfterTransition);
+    };
+  }, [expandedWorkEntries, expandedWorkGroups, rowVirtualizer]);
   useEffect(() => {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
       const viewportHeight = instance.scrollRect?.height ?? 0;
@@ -296,6 +319,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
+  const onSetWorkEntryExpanded = useCallback((workEntryId: string, open: boolean) => {
+    setExpandedWorkEntries((current) => ({
+      ...current,
+      [workEntryId]: open,
+    }));
+  }, []);
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
@@ -322,33 +351,26 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
               : groupedEntries;
           const hiddenCount = groupedEntries.length - visibleEntries.length;
-          const onlyToolEntries = groupedEntries.every((entry) => entry.tone === "tool");
-          const showHeader = hasOverflow || !onlyToolEntries;
-          const groupLabel = onlyToolEntries ? "Tool calls" : "Work log";
 
           return (
-            <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
-              {showHeader && (
-                <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-                  <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
-                    {groupLabel} ({groupedEntries.length})
-                  </p>
-                  {hasOverflow && (
-                    <button
-                      type="button"
-                      className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/75"
-                      onClick={() => onToggleWorkGroup(groupId)}
-                    >
-                      {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
-                    </button>
-                  )}
-                </div>
+            <div className="space-y-0.5">
+              {visibleEntries.map((workEntry) => (
+                <WorkEntryRow
+                  key={`work-row:${workEntry.id}`}
+                  workEntry={workEntry}
+                  isExpanded={expandedWorkEntries[workEntry.id] ?? false}
+                  onExpandedChange={(open) => onSetWorkEntryExpanded(workEntry.id, open)}
+                />
+              ))}
+              {hasOverflow && (
+                <button
+                  type="button"
+                  className="pl-1 text-left text-[11px] text-muted-foreground/52 transition-colors duration-150 hover:text-foreground/72"
+                  onClick={() => onToggleWorkGroup(groupId)}
+                >
+                  {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
+                </button>
               )}
-              <div className="space-y-0.5">
-                {visibleEntries.map((workEntry) => (
-                  <SimpleWorkEntryRow key={`work-row:${workEntry.id}`} workEntry={workEntry} />
-                ))}
-              </div>
             </div>
           );
         })()}
@@ -360,55 +382,58 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
           const terminalContexts = displayedUserMessage.contexts;
           const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
+          const hasUserActions = Boolean(displayedUserMessage.copyText) || canRevertAgentWork;
           return (
             <div className="flex justify-end">
-              <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
-                {userImages.length > 0 && (
-                  <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-                    {userImages.map(
-                      (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-                        <div
-                          key={image.id}
-                          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-                        >
-                          {image.previewUrl ? (
-                            <button
-                              type="button"
-                              className="h-full w-full cursor-zoom-in"
-                              aria-label={`Preview ${image.name}`}
-                              onClick={() => {
-                                const preview = buildExpandedImagePreview(userImages, image.id);
-                                if (!preview) return;
-                                onImageExpand(preview);
-                              }}
-                            >
-                              <img
-                                src={image.previewUrl}
-                                alt={image.name}
-                                className="h-full max-h-[220px] w-full object-cover"
-                                onLoad={onTimelineImageLoad}
-                                onError={onTimelineImageLoad}
-                              />
-                            </button>
-                          ) : (
-                            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
-                              {image.name}
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    )}
-                  </div>
-                )}
-                {(displayedUserMessage.visibleText.trim().length > 0 ||
-                  terminalContexts.length > 0) && (
-                  <UserMessageBody
-                    text={displayedUserMessage.visibleText}
-                    terminalContexts={terminalContexts}
-                  />
-                )}
-                <div className="mt-1.5 flex items-center justify-end gap-2">
-                  <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+              <div className="group flex max-w-[80%] flex-col items-end">
+                <div className="relative rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
+                  {userImages.length > 0 && (
+                    <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
+                      {userImages.map(
+                        (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+                          <div
+                            key={image.id}
+                            className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+                          >
+                            {image.previewUrl ? (
+                              <button
+                                type="button"
+                                className="h-full w-full cursor-zoom-in"
+                                aria-label={`Preview ${image.name}`}
+                                onClick={() => {
+                                  const preview = buildExpandedImagePreview(userImages, image.id);
+                                  if (!preview) return;
+                                  onImageExpand(preview);
+                                }}
+                              >
+                                <img
+                                  src={image.previewUrl}
+                                  alt={image.name}
+                                  className="h-full max-h-[220px] w-full object-cover"
+                                  onLoad={onTimelineImageLoad}
+                                  onError={onTimelineImageLoad}
+                                />
+                              </button>
+                            ) : (
+                              <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                                {image.name}
+                              </div>
+                            )}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+                  {(displayedUserMessage.visibleText.trim().length > 0 ||
+                    terminalContexts.length > 0) && (
+                    <UserMessageBody
+                      text={displayedUserMessage.visibleText}
+                      terminalContexts={terminalContexts}
+                    />
+                  )}
+                </div>
+                {hasUserActions && (
+                  <div className="mt-1 flex items-center gap-1.5 pr-1 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
                     {displayedUserMessage.copyText && (
                       <MessageCopyButton text={displayedUserMessage.copyText} />
                     )}
@@ -425,10 +450,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       </Button>
                     )}
                   </div>
-                  <p className="text-right text-[10px] text-muted-foreground/30">
-                    {formatTimestamp(row.message.createdAt, timestampFormat)}
-                  </p>
-                </div>
+                )}
               </div>
             </div>
           );
@@ -538,7 +560,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
       {row.kind === "working" && (
         <div className="py-0.5 pl-1.5">
-          <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70">
+          <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground/70">
             <span className="inline-flex items-center gap-[3px]">
               <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
               <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
@@ -779,19 +801,6 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
-function workEntryPreview(
-  workEntry: Pick<TimelineWorkEntry, "detail" | "command" | "changedFiles">,
-) {
-  if (workEntry.command) return workEntry.command;
-  if (workEntry.detail) return workEntry.detail;
-  if ((workEntry.changedFiles?.length ?? 0) === 0) return null;
-  const [firstPath] = workEntry.changedFiles ?? [];
-  if (!firstPath) return null;
-  return workEntry.changedFiles!.length === 1
-    ? firstPath
-    : `${firstPath} +${workEntry.changedFiles!.length - 1} more`;
-}
-
 function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.requestKind === "command") return TerminalIcon;
   if (workEntry.requestKind === "file-read") return EyeIcon;
@@ -815,21 +824,6 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   }
 
   return workToneIcon(workEntry.tone).icon;
-}
-
-function capitalizePhrase(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return value;
-  }
-  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
-}
-
-function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
-  if (!workEntry.toolTitle) {
-    return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
-  }
-  return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
 }
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
@@ -887,5 +881,123 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         </div>
       )}
     </div>
+  );
+});
+
+const HoverCopyButton = memo(function HoverCopyButton({ text }: { text: string }) {
+  const { copyToClipboard, isCopied } = useCopyToClipboard();
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        copyToClipboard(text);
+      }}
+      className="absolute right-2 top-2 z-10 rounded-md border border-border/50 bg-card/90 p-1 opacity-0 shadow-sm backdrop-blur-sm transition-opacity duration-150 group-hover/section:opacity-100"
+      title="Copy"
+    >
+      {isCopied ? (
+        <CheckIcon className="size-3.5 text-success" />
+      ) : (
+        <CopyIcon className="size-3.5 text-muted-foreground/70" />
+      )}
+    </button>
+  );
+});
+
+const WorkEntryRow = memo(function WorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  isExpanded: boolean;
+  onExpandedChange: (open: boolean) => void;
+}) {
+  const { workEntry, isExpanded, onExpandedChange } = props;
+  if (!workEntryHasExpandableContent(workEntry)) {
+    return <SimpleWorkEntryRow workEntry={workEntry} />;
+  }
+
+  const summary = workEntrySummary(workEntry);
+  const panelLabel = workEntryPanelLabel(workEntry);
+  const commandText = workEntry.command?.trim() || null;
+  const outputBody = workEntryOutputBody(workEntry);
+  const statusLabel = workEntryStatusLabel(workEntry);
+  const statusToneClass =
+    workEntry.tone === "error" ? "text-rose-300/75 dark:text-rose-300/80" : "text-foreground/52";
+
+  return (
+    <Collapsible
+      open={isExpanded}
+      onOpenChange={onExpandedChange}
+      className="rounded-lg px-1 py-0.5"
+      data-work-entry-id={workEntry.id}
+    >
+      <CollapsibleTrigger
+        data-work-entry-toggle={workEntry.id}
+        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground/82"
+        style={{ fontSize: "var(--app-ui-font-size)" }}
+        title={summary}
+      >
+        <span className="min-w-0 flex-1 truncate text-foreground/68">{summary}</span>
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200",
+            isExpanded ? "rotate-180" : "rotate-0",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div
+          data-work-entry-panel={workEntry.id}
+          className="mt-1 overflow-hidden rounded-2xl border border-border/40 bg-muted/50 font-mono"
+        >
+          <div className="px-4 pt-3 pb-1">
+            <p
+              className="font-medium text-muted-foreground/70"
+              style={{ fontSize: "calc(var(--app-code-font-size) - 2px)" }}
+            >
+              {panelLabel}
+            </p>
+          </div>
+          {commandText && (
+            <div className="group/section relative px-4 py-2.5">
+              <HoverCopyButton text={commandText} />
+              <pre
+                className="overflow-hidden whitespace-pre-wrap break-words font-mono font-semibold text-foreground/90"
+                style={{
+                  fontSize: "calc(var(--app-code-font-size) - 1px)",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                }}
+              >
+                <span className="font-normal text-muted-foreground/50">$ </span>{commandText}
+              </pre>
+            </div>
+          )}
+          {outputBody && (
+            <div className="group/section relative">
+              <HoverCopyButton text={outputBody} />
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-5 bg-gradient-to-b from-muted/50 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-5 bg-gradient-to-t from-muted/50 to-transparent" />
+              <div className="max-h-48 overflow-auto px-4 py-3">
+                <pre
+                  className="whitespace-pre font-mono text-foreground/68"
+                  style={{ fontSize: "calc(var(--app-code-font-size) - 2px)" }}
+                >
+                  {outputBody}
+                </pre>
+              </div>
+            </div>
+          )}
+          <div
+            className={cn("flex items-center justify-end gap-1.5 px-4 pb-2.5 pt-0.5", statusToneClass)}
+            style={{ fontSize: "calc(var(--app-code-font-size) - 2px)" }}
+          >
+            {workEntry.tone !== "error" && <CheckIcon className="size-3" />}
+            <span>{statusLabel}</span>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 });

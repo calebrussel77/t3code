@@ -44,9 +44,16 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 
+export const shouldUseBunPtyAdapter = (runtime: {
+  readonly hasBun: boolean;
+  readonly platform: NodeJS.Platform;
+}) => runtime.hasBun && runtime.platform !== "win32";
+
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
-    if (typeof Bun !== "undefined") {
+    if (
+      shouldUseBunPtyAdapter({ hasBun: typeof Bun !== "undefined", platform: process.platform })
+    ) {
       const BunPTY = yield* Effect.promise(() => import("./terminal/Layers/BunPTY"));
       return BunPTY.layer;
     } else {

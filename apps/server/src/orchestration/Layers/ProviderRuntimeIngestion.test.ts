@@ -1549,6 +1549,58 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("buffers tool output deltas and attaches them to the completed tool activity", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-tool-output-delta"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tool-output"),
+      itemId: asItemId("item-tool-output"),
+      payload: {
+        streamKind: "command_output",
+        delta: '{\n  "name": "@t3tools/monorepo"\n}',
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-tool-output-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tool-output"),
+      itemId: asItemId("item-tool-output"),
+      payload: {
+        itemType: "command_execution",
+        title: "Ran command",
+        detail: "Ran command",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-output-completed",
+      ),
+    );
+
+    const completedActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-output-completed",
+    );
+    const completedPayload =
+      completedActivity?.payload && typeof completedActivity.payload === "object"
+        ? (completedActivity.payload as Record<string, unknown>)
+        : undefined;
+
+    expect(completedActivity?.kind).toBe("tool.completed");
+    expect(completedPayload?.itemType).toBe("command_execution");
+    expect(completedPayload?.output).toBe('{\n  "name": "@t3tools/monorepo"\n}');
+  });
+
   it("does not duplicate assistant completion when item.completed is followed by turn.completed", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1905,6 +1957,28 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-item-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      itemId: asItemId("item-p1-tool"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run tests",
+        detail: "Ran command",
+        data: {
+          item: {
+            result: {
+              output: ["vitest passed", "typecheck passed"],
+            },
+          },
+        },
+      },
+    });
+
+    harness.emit({
       type: "runtime.warning",
       eventId: asEventId("evt-runtime-warning"),
       provider: "codex",
@@ -1941,6 +2015,9 @@ describe("ProviderRuntimeIngestion", () => {
           (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.updated",
         ) &&
         entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.completed",
+        ) &&
+        entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
         ) &&
         entry.checkpoints.some(
@@ -1969,7 +2046,26 @@ describe("ProviderRuntimeIngestion", () => {
         : undefined;
     expect(toolUpdate?.kind).toBe("tool.updated");
     expect(toolUpdatePayload?.itemType).toBe("command_execution");
+    expect(toolUpdatePayload?.itemId).toBe("item-p1-tool");
     expect(toolUpdatePayload?.status).toBe("in_progress");
+
+    const toolCompleted = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-item-completed",
+    );
+    const toolCompletedPayload =
+      toolCompleted?.payload && typeof toolCompleted.payload === "object"
+        ? (toolCompleted.payload as Record<string, unknown>)
+        : undefined;
+    expect(toolCompleted?.kind).toBe("tool.completed");
+    expect(toolCompletedPayload?.itemType).toBe("command_execution");
+    expect(toolCompletedPayload?.itemId).toBe("item-p1-tool");
+    expect(toolCompletedPayload?.data).toMatchObject({
+      item: {
+        result: {
+          output: ["vitest passed", "typecheck passed"],
+        },
+      },
+    });
 
     const warning = thread.activities.find(
       (activity: ProviderRuntimeTestActivity) => activity.id === "evt-runtime-warning",

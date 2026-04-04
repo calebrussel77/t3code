@@ -377,12 +377,12 @@ export const TraitsPicker = memo(function TraitsPicker({
       <MenuTrigger
         render={
           <Button
-            size="sm"
+            size="xs"
             variant={triggerVariant ?? "ghost"}
             className={cn(
               isCodexStyle
-                ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-3 [&_svg]:mx-0"
-                : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
+                ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-1.5 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-2 [&_svg]:mx-0"
+                : "shrink-0 whitespace-nowrap px-1.5 text-muted-foreground/70 hover:text-foreground/80 sm:px-2",
               triggerClassName,
             )}
           />

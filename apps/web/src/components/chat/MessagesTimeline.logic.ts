@@ -3,6 +3,7 @@ import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
+import { normalizeCompactToolLabel, workEntryHasExpandableContent } from "../../workLogEntry";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -55,9 +56,7 @@ export function computeMessageDurationStart(
   return result;
 }
 
-export function normalizeCompactToolLabel(value: string): string {
-  return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
-}
+export { normalizeCompactToolLabel } from "../../workLogEntry";
 
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -134,6 +133,7 @@ export function estimateMessagesTimelineRowHeight(
   input: {
     timelineWidthPx: number | null;
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
+    expandedWorkEntries?: Readonly<Record<string, boolean>>;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
@@ -161,17 +161,27 @@ function estimateWorkRowHeight(
   row: Extract<MessagesTimelineRow, { kind: "work" }>,
   input: {
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
+    expandedWorkEntries?: Readonly<Record<string, boolean>>;
   },
 ): number {
   const isExpanded = input.expandedWorkGroups?.[row.id] ?? false;
   const hasOverflow = row.groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
   const visibleEntries =
-    hasOverflow && !isExpanded ? MAX_VISIBLE_WORK_LOG_ENTRIES : row.groupedEntries.length;
-  const onlyToolEntries = row.groupedEntries.every((entry) => entry.tone === "tool");
-  const showHeader = hasOverflow || !onlyToolEntries;
+    hasOverflow && !isExpanded
+      ? row.groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
+      : row.groupedEntries;
 
-  // Card chrome, optional header, and one compact work-entry row per visible entry.
-  return 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
+  const visibleEntryHeight = visibleEntries.reduce((total, entry) => {
+    const isEntryExpanded = input.expandedWorkEntries?.[entry.id] ?? false;
+    if (!workEntryHasExpandableContent(entry)) {
+      return total + 32;
+    }
+    return total + (isEntryExpanded ? 224 : 34);
+  }, 0);
+
+  const overflowToggleHeight = hasOverflow ? 24 : 0;
+
+  return visibleEntryHeight + Math.max(0, visibleEntries.length - 1) * 6 + overflowToggleHeight;
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {

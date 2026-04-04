@@ -69,5 +69,5 @@ export function formatRelativeTime(isoDate: string): { value: string; suffix: st
 
 export function formatRelativeTimeLabel(isoDate: string) {
   const relative = formatRelativeTime(isoDate);
-  return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
+  return relative.value;
 }

@@ -38,7 +38,10 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
+const BUFFERED_TOOL_OUTPUT_BY_ITEM_KEY_CACHE_CAPACITY = 20_000;
+const BUFFERED_TOOL_OUTPUT_BY_ITEM_KEY_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
+const MAX_BUFFERED_TOOL_OUTPUT_CHARS = 120_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -96,6 +99,58 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
     return `plan:${threadId}:item:${event.itemId}`;
   }
   return `plan:${threadId}:event:${event.eventId}`;
+}
+
+function toolOutputKey(threadId: ThreadId, itemId: string): string {
+  return `${threadId}:${itemId}`;
+}
+
+function toolItemTypeFromOutputStreamKind(
+  streamKind: string | undefined,
+): "command_execution" | "file_change" | undefined {
+  switch (streamKind) {
+    case "command_output":
+      return "command_execution";
+    case "file_change_output":
+      return "file_change";
+    default:
+      return undefined;
+  }
+}
+
+function appendToolOutputChunk(existing: string, delta: string): string {
+  const next = `${existing}${delta}`;
+  if (next.length <= MAX_BUFFERED_TOOL_OUTPUT_CHARS) {
+    return next;
+  }
+  const truncated = next.slice(0, MAX_BUFFERED_TOOL_OUTPUT_CHARS).trimEnd();
+  return `${truncated}\n...[output truncated]`;
+}
+
+function activityWithBufferedToolOutput(
+  activity: OrchestrationThreadActivity,
+  output: string | undefined,
+): OrchestrationThreadActivity {
+  if (!output || output.trim().length === 0) {
+    return activity;
+  }
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    return activity;
+  }
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  if (!payload) {
+    return activity;
+  }
+  return {
+    ...activity,
+    payload: {
+      ...payload,
+      output,
+    },
+  };
 }
 
 function buildContextWindowActivityPayload(
@@ -441,6 +496,7 @@ function runtimeEventToActivities(
           summary: event.payload.title ?? "Tool updated",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
@@ -464,7 +520,9 @@ function runtimeEventToActivities(
           summary: event.payload.title ?? "Tool",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -485,6 +543,7 @@ function runtimeEventToActivities(
           summary: `${event.payload.title ?? "Tool"} started`,
           payload: {
             itemType: event.payload.itemType,
+            ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -522,6 +581,12 @@ const make = Effect.fn("make")(function* () {
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
     lookup: () => Effect.succeed({ text: "", createdAt: "" }),
+  });
+
+  const bufferedToolOutputByItemKey = yield* Cache.make<string, string>({
+    capacity: BUFFERED_TOOL_OUTPUT_BY_ITEM_KEY_CACHE_CAPACITY,
+    timeToLive: BUFFERED_TOOL_OUTPUT_BY_ITEM_KEY_TTL,
+    lookup: () => Effect.succeed(""),
   });
 
   const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
@@ -640,6 +705,34 @@ const make = Effect.fn("make")(function* () {
 
   const clearBufferedProposedPlan = (planId: string) =>
     Cache.invalidate(bufferedProposedPlanById, planId);
+
+  const appendBufferedToolOutput = (threadId: ThreadId, itemId: string, delta: string) =>
+    Cache.getOption(bufferedToolOutputByItemKey, toolOutputKey(threadId, itemId)).pipe(
+      Effect.flatMap((existingOutput) =>
+        Cache.set(
+          bufferedToolOutputByItemKey,
+          toolOutputKey(threadId, itemId),
+          appendToolOutputChunk(
+            Option.getOrElse(existingOutput, () => ""),
+            delta,
+          ),
+        ),
+      ),
+    );
+
+  const getBufferedToolOutput = (threadId: ThreadId, itemId: string) =>
+    Cache.getOption(bufferedToolOutputByItemKey, toolOutputKey(threadId, itemId)).pipe(
+      Effect.map((existingOutput) => Option.getOrElse(existingOutput, () => "")),
+    );
+
+  const takeBufferedToolOutput = (threadId: ThreadId, itemId: string) =>
+    Cache.getOption(bufferedToolOutputByItemKey, toolOutputKey(threadId, itemId)).pipe(
+      Effect.flatMap((existingOutput) =>
+        Cache.invalidate(bufferedToolOutputByItemKey, toolOutputKey(threadId, itemId)).pipe(
+          Effect.as(Option.getOrElse(existingOutput, () => "")),
+        ),
+      ),
+    );
 
   const clearAssistantMessageState = (messageId: MessageId) =>
     clearBufferedAssistantText(messageId);
@@ -1041,6 +1134,17 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
+    const toolOutputDelta =
+      event.type === "content.delta"
+        ? toolItemTypeFromOutputStreamKind(event.payload.streamKind)
+          ? event.payload.delta
+          : undefined
+        : undefined;
+
+    if (toolOutputDelta && toolOutputDelta.length > 0 && event.itemId) {
+      yield* appendBufferedToolOutput(thread.id, event.itemId, toolOutputDelta);
+    }
+
     if (proposedPlanDelta && proposedPlanDelta.length > 0) {
       const planId = proposedPlanIdFromEvent(event, thread.id);
       yield* appendBufferedProposedPlan(planId, proposedPlanDelta, now);
@@ -1211,7 +1315,17 @@ const make = Effect.fn("make")(function* () {
     }
 
     const activities = runtimeEventToActivities(event);
-    yield* Effect.forEach(activities, (activity) =>
+    const bufferedToolOutput =
+      event.itemId && (event.type === "item.updated" || event.type === "item.completed")
+        ? yield* event.type === "item.completed"
+            ? takeBufferedToolOutput(thread.id, event.itemId)
+            : getBufferedToolOutput(thread.id, event.itemId)
+        : "";
+    const activitiesWithBufferedToolOutput =
+      bufferedToolOutput.length > 0
+        ? activities.map((activity) => activityWithBufferedToolOutput(activity, bufferedToolOutput))
+        : activities;
+    yield* Effect.forEach(activitiesWithBufferedToolOutput, (activity) =>
       orchestrationEngine.dispatch({
         type: "thread.activity.append",
         commandId: providerCommandId(event, "thread-activity-append"),
