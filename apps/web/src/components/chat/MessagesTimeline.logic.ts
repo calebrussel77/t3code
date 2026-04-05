@@ -4,8 +4,21 @@ import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
 import { normalizeCompactToolLabel, workEntryHasExpandableContent } from "../../workLogEntry";
+import { groupWorkEntriesForTimeline } from "./workEntryGrouping";
 
-export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
+const WORK_ROW_BOTTOM_PADDING_PX = 16;
+const SIMPLE_WORK_ENTRY_HEIGHT_PX = 36;
+const COLLAPSED_WORK_ENTRY_HEIGHT_PX = 40;
+const EXPANDED_WORK_ENTRY_HEIGHT_PX = 240;
+const WORK_ENTRY_GAP_PX = 6;
+const REASONING_GROUP_COLLAPSED_HEIGHT_PX = 40;
+const REASONING_GROUP_EXPANDED_BASE_HEIGHT_PX = 52;
+const REASONING_GROUP_ITEM_HEIGHT_PX = 24;
+const AGENT_GROUP_COLLAPSED_HEIGHT_PX = 56;
+const AGENT_GROUP_EXPANDED_BASE_HEIGHT_PX = 188;
+const AGENT_GROUP_TOOL_HEIGHT_PX = 40;
+const AGENT_GROUP_EXPANDED_TOOL_HEIGHT_PX = 240;
+const AGENT_GROUP_TOOL_LIST_LIMIT = 5;
 
 export interface TimelineDurationMessage {
   id: string;
@@ -134,6 +147,7 @@ export function estimateMessagesTimelineRowHeight(
     timelineWidthPx: number | null;
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedWorkEntries?: Readonly<Record<string, boolean>>;
+    expandedAgentToolLists?: Readonly<Record<string, boolean>>;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
@@ -162,26 +176,61 @@ function estimateWorkRowHeight(
   input: {
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedWorkEntries?: Readonly<Record<string, boolean>>;
+    expandedAgentToolLists?: Readonly<Record<string, boolean>>;
   },
 ): number {
-  const isExpanded = input.expandedWorkGroups?.[row.id] ?? false;
-  const hasOverflow = row.groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
-  const visibleEntries =
-    hasOverflow && !isExpanded
-      ? row.groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
-      : row.groupedEntries;
+  const visibleItems = groupWorkEntriesForTimeline(row.groupedEntries);
 
-  const visibleEntryHeight = visibleEntries.reduce((total, entry) => {
-    const isEntryExpanded = input.expandedWorkEntries?.[entry.id] ?? false;
-    if (!workEntryHasExpandableContent(entry)) {
-      return total + 32;
+  const visibleEntryHeight = visibleItems.reduce((total, item) => {
+    if (item.kind === "reasoning-group") {
+      const isExpanded = input.expandedWorkEntries?.[item.collapseKey] ?? false;
+      if (!isExpanded) {
+        return total + REASONING_GROUP_COLLAPSED_HEIGHT_PX;
+      }
+      return (
+        total +
+        REASONING_GROUP_EXPANDED_BASE_HEIGHT_PX +
+        item.entries.length * REASONING_GROUP_ITEM_HEIGHT_PX
+      );
     }
-    return total + (isEntryExpanded ? 224 : 34);
+
+    if (item.kind === "agent-group") {
+      const isExpanded = input.expandedWorkEntries?.[item.collapseKey] ?? false;
+      if (!isExpanded) {
+        return total + AGENT_GROUP_COLLAPSED_HEIGHT_PX;
+      }
+      const showAllTools = input.expandedAgentToolLists?.[item.collapseKey] ?? false;
+      const visibleToolCount = showAllTools
+        ? item.toolEntries.length
+        : Math.min(item.toolEntries.length, AGENT_GROUP_TOOL_LIST_LIMIT);
+      const toolHeight = item.toolEntries.reduce((toolTotal, toolEntry, index) => {
+        if (index >= visibleToolCount) {
+          return toolTotal;
+        }
+        const isToolExpanded = input.expandedWorkEntries?.[toolEntry.id] ?? false;
+        if (!workEntryHasExpandableContent(toolEntry) || !isToolExpanded) {
+          return toolTotal + AGENT_GROUP_TOOL_HEIGHT_PX;
+        }
+        return toolTotal + AGENT_GROUP_EXPANDED_TOOL_HEIGHT_PX;
+      }, 0);
+      const showMoreHeight = item.toolEntries.length > AGENT_GROUP_TOOL_LIST_LIMIT ? 36 : 0;
+      return total + AGENT_GROUP_EXPANDED_BASE_HEIGHT_PX + toolHeight + showMoreHeight;
+    }
+
+    const isEntryExpanded = input.expandedWorkEntries?.[item.entry.id] ?? false;
+    if (!workEntryHasExpandableContent(item.entry)) {
+      return total + SIMPLE_WORK_ENTRY_HEIGHT_PX;
+    }
+    return (
+      total + (isEntryExpanded ? EXPANDED_WORK_ENTRY_HEIGHT_PX : COLLAPSED_WORK_ENTRY_HEIGHT_PX)
+    );
   }, 0);
 
-  const overflowToggleHeight = hasOverflow ? 24 : 0;
-
-  return visibleEntryHeight + Math.max(0, visibleEntries.length - 1) * 6 + overflowToggleHeight;
+  return (
+    visibleEntryHeight +
+    Math.max(0, visibleItems.length - 1) * WORK_ENTRY_GAP_PX +
+    WORK_ROW_BOTTOM_PADDING_PX
+  );
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {

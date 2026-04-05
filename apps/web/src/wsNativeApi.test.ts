@@ -14,6 +14,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ContextMenuItem } from "@t3tools/contracts";
 
+let createWsNativeApi: (typeof import("./wsNativeApi"))["createWsNativeApi"];
+let __resetWsNativeApiForTests: (typeof import("./wsNativeApi"))["__resetWsNativeApiForTests"];
+
 const showContextMenuFallbackMock =
   vi.fn<
     <T extends string>(
@@ -168,13 +171,22 @@ const baseServerConfig: ServerConfig = {
   settings: DEFAULT_SERVER_SETTINGS,
 };
 
+beforeEach(async () => {
+  if (!createWsNativeApi || !__resetWsNativeApiForTests) {
+    ({ createWsNativeApi, __resetWsNativeApiForTests } = await import("./wsNativeApi"));
+  }
+});
+
 beforeEach(() => {
-  vi.resetModules();
   vi.clearAllMocks();
   showContextMenuFallbackMock.mockReset();
   terminalEventListeners.clear();
   orchestrationEventListeners.clear();
   Reflect.deleteProperty(getWindowForTest(), "desktopBridge");
+});
+
+beforeEach(() => {
+  __resetWsNativeApiForTests();
 });
 
 afterEach(() => {
@@ -184,7 +196,6 @@ afterEach(() => {
 describe("wsNativeApi", () => {
   it("forwards server config fetches directly to the RPC client", async () => {
     rpcClientMock.server.getConfig.mockResolvedValue(baseServerConfig);
-    const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
 
@@ -195,8 +206,6 @@ describe("wsNativeApi", () => {
   });
 
   it("forwards terminal and orchestration stream events", async () => {
-    const { createWsNativeApi } = await import("./wsNativeApi");
-
     const api = createWsNativeApi();
     const onTerminalEvent = vi.fn();
     const onDomainEvent = vi.fn();

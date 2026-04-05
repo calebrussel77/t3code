@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  collectCodexAgentSkeletons,
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
@@ -564,6 +565,159 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
+  it("keeps inline agent starts and extracts parent/agent metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "agent-start",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Agent started",
+        tone: "tool",
+        payload: {
+          itemId: "tool-agent-1",
+          itemType: "collab_agent_tool_call",
+          status: "inProgress",
+          collabToolKind: "task",
+          title: "Agent (code-reviewer)",
+          detail: "Review the database layer",
+          data: {
+            input: {
+              prompt: "Audit the SQL changes",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "agent-child-tool",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Ran command",
+        tone: "tool",
+        payload: {
+          itemId: "tool-bash-1",
+          itemType: "command_execution",
+          title: "Bash",
+          status: "completed",
+          data: {
+            parentToolUseId: "tool-agent-1",
+            input: {
+              command: "ls src",
+            },
+            result: {
+              output: "src\npackage.json",
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      id: "agent-start",
+      itemType: "collab_agent_tool_call",
+      collabToolKind: "task",
+      itemStatus: "inProgress",
+      toolItemId: "tool-agent-1",
+      subagentPrompt: "Audit the SQL changes",
+    });
+    expect(entries[1]).toMatchObject({
+      id: "agent-child-tool",
+      parentToolUseId: "tool-agent-1",
+      command: "ls src",
+      detail: "src\npackage.json",
+    });
+  });
+
+  it("infers historical Claude sub-agent entries as inline agent tasks", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "historic-claude-agent",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Agent",
+        tone: "tool",
+        payload: {
+          itemId: "tool-agent-1",
+          itemType: "collab_agent_tool_call",
+          status: "completed",
+          title: "Agent",
+          detail: "Explore project structure & config",
+          data: {
+            toolName: "Agent",
+            input: {
+              subagent_type: "Explore",
+              prompt: "Inspect the monorepo layout",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      id: "historic-claude-agent",
+      itemType: "collab_agent_tool_call",
+      collabToolKind: "task",
+      subagentPrompt: "Inspect the monorepo layout",
+    });
+  });
+
+  it("omits Codex collab-agent lifecycle entries from the conversation work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "codex-agent-start",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Agent started",
+        tone: "tool",
+        payload: {
+          itemId: "codex-agent-1",
+          itemType: "collab_agent_tool_call",
+          status: "inProgress",
+          detail: "Inspect the app surface",
+        },
+      }),
+      makeActivity({
+        id: "codex-agent-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Agent completed",
+        tone: "tool",
+        payload: {
+          itemId: "codex-agent-1",
+          itemType: "collab_agent_tool_call",
+          status: "completed",
+          detail: "Inspect the app surface",
+        },
+      }),
+      makeActivity({
+        id: "top-level-tool",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.completed",
+        summary: "Ran command",
+        tone: "tool",
+        payload: {
+          itemType: "command_execution",
+          title: "bash",
+          detail: "pwd",
+          data: {
+            item: {
+              command: ["pwd"],
+              result: {
+                output: "/repo/project",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries.map((entry) => entry.id)).toEqual(["top-level-tool"]);
+  });
+
   it("omits task start and completion lifecycle entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1095,6 +1249,43 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.id).toBe("a-complete-same-timestamp");
+  });
+
+  it("collects only Codex widget items for the composer widget", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-agent",
+        kind: "tool.completed",
+        summary: "Agent completed",
+        tone: "tool",
+        payload: {
+          itemId: "claude-agent-1",
+          itemType: "collab_agent_tool_call",
+          collabToolKind: "task",
+          detail: "Review the database layer",
+        },
+      }),
+      makeActivity({
+        id: "codex-agent",
+        kind: "tool.completed",
+        summary: "Agent completed",
+        tone: "tool",
+        payload: {
+          itemId: "codex-agent-1",
+          itemType: "collab_agent_tool_call",
+          collabToolKind: "agent_tool_call",
+          detail: "Explore the routing code",
+        },
+      }),
+    ];
+
+    expect(collectCodexAgentSkeletons(activities, undefined)).toEqual([
+      {
+        id: "codex-agent-1",
+        prompt: "Explore the routing code",
+        errored: false,
+      },
+    ]);
   });
 });
 

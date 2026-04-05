@@ -4,8 +4,7 @@ import { ensureNativeApi } from "~/nativeApi";
 
 export const skillQueryKeys = {
   all: ["skills"] as const,
-  list: (cwd: string | null, provider: ProviderKind) =>
-    ["skills", "list", cwd, provider] as const,
+  list: (cwd: string | null, provider: ProviderKind) => ["skills", "list", cwd, provider] as const,
 };
 
 const SKILL_LIST_STALE_TIME = 300_000; // 5 minutes

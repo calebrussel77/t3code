@@ -42,9 +42,75 @@ function makeFakeCodexBinary(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const binDir = path.join(dir, "bin");
-    const codexPath = path.join(binDir, "codex");
     yield* fs.makeDirectory(binDir, { recursive: true });
+    const fakeConfig = {
+      output: input.output,
+      exitCode: input.exitCode ?? 0,
+      stderr: input.stderr ?? null,
+      requireImage: input.requireImage ?? false,
+      requireFastServiceTier: input.requireFastServiceTier ?? false,
+      requireReasoningEffort: input.requireReasoningEffort ?? null,
+      forbidReasoningEffort: input.forbidReasoningEffort ?? false,
+      stdinMustContain: input.stdinMustContain ?? null,
+      stdinMustNotContain: input.stdinMustNotContain ?? null,
+    };
 
+    if (process.platform === "win32") {
+      const runnerPath = path.join(binDir, "codex.js");
+      const codexPath = path.join(binDir, "codex.cmd");
+      yield* fs.writeFileString(
+        runnerPath,
+        [
+          'const fs = require("node:fs");',
+          `const config = ${JSON.stringify(fakeConfig)};`,
+          "const args = process.argv.slice(2);",
+          'let outputPath = "";',
+          "let seenImage = false;",
+          "let seenFastServiceTier = false;",
+          'let seenReasoningEffort = "";',
+          "for (let index = 0; index < args.length; index += 1) {",
+          "  const value = args[index];",
+          '  if (value === "--image") {',
+          "    index += 1;",
+          "    if (index < args.length && args[index]) seenImage = true;",
+          "    continue;",
+          "  }",
+          '  if (value === "--config") {',
+          "    index += 1;",
+          '    const configValue = index < args.length ? args[index] ?? "" : "";',
+          '    if (configValue.startsWith("service_tier=") && configValue.includes("fast")) seenFastServiceTier = true;',
+          '    if (configValue.startsWith("model_reasoning_effort=")) seenReasoningEffort = configValue.slice("model_reasoning_effort=".length).replace(/^"|"$/g, "");',
+          "    continue;",
+          "  }",
+          '  if (value === "--output-last-message") {',
+          "    index += 1;",
+          '    outputPath = index < args.length ? args[index] ?? "" : "";',
+          "  }",
+          "}",
+          'const stdinContent = fs.readFileSync(0, "utf8");',
+          'if (config.requireImage && !seenImage) { console.error("missing --image input"); process.exit(2); }',
+          'if (config.requireFastServiceTier && !seenFastServiceTier) { console.error("missing fast service tier config"); process.exit(5); }',
+          "if (config.requireReasoningEffort !== null && seenReasoningEffort !== config.requireReasoningEffort) {",
+          "  console.error(`unexpected reasoning effort config: ${seenReasoningEffort}`);",
+          "  process.exit(6);",
+          "}",
+          "if (config.forbidReasoningEffort && seenReasoningEffort.length > 0) {",
+          "  console.error(`reasoning effort config should be omitted: ${seenReasoningEffort}`);",
+          "  process.exit(7);",
+          "}",
+          'if (config.stdinMustContain !== null && !stdinContent.includes(config.stdinMustContain)) { console.error("stdin missing expected content"); process.exit(3); }',
+          'if (config.stdinMustNotContain !== null && stdinContent.includes(config.stdinMustNotContain)) { console.error("stdin contained forbidden content"); process.exit(4); }',
+          "if (config.stderr !== null) console.error(config.stderr);",
+          "if (outputPath.length > 0) fs.writeFileSync(outputPath, config.output);",
+          "process.exit(config.exitCode);",
+          "",
+        ].join("\n"),
+      );
+      yield* fs.writeFileString(codexPath, '@echo off\r\nnode "%~dp0codex.js" %*\r\n');
+      return codexPath;
+    }
+
+    const codexPath = path.join(binDir, "codex");
     yield* fs.writeFileString(
       codexPath,
       [
@@ -88,7 +154,7 @@ function makeFakeCodexBinary(
           ? [
               'if [ "$seen_image" != "1" ]; then',
               '  printf "%s\\n" "missing --image input" >&2',
-              `  exit 2`,
+              "  exit 2",
               "fi",
             ]
           : []),
@@ -96,7 +162,7 @@ function makeFakeCodexBinary(
           ? [
               'if [ "$seen_fast_service_tier" != "1" ]; then',
               '  printf "%s\\n" "missing fast service tier config" >&2',
-              `  exit 5`,
+              "  exit 5",
               "fi",
             ]
           : []),
@@ -104,7 +170,7 @@ function makeFakeCodexBinary(
           ? [
               `if [ "$seen_reasoning_effort" != "model_reasoning_effort=\\"${input.requireReasoningEffort}\\"" ]; then`,
               '  printf "%s\\n" "unexpected reasoning effort config: $seen_reasoning_effort" >&2',
-              `  exit 6`,
+              "  exit 6",
               "fi",
             ]
           : []),
@@ -112,7 +178,7 @@ function makeFakeCodexBinary(
           ? [
               'if [ -n "$seen_reasoning_effort" ]; then',
               '  printf "%s\\n" "reasoning effort config should be omitted: $seen_reasoning_effort" >&2',
-              `  exit 7`,
+              "  exit 7",
               "fi",
             ]
           : []),
@@ -120,7 +186,7 @@ function makeFakeCodexBinary(
           ? [
               `if ! printf "%s" "$stdin_content" | grep -F -- ${JSON.stringify(input.stdinMustContain)} >/dev/null; then`,
               '  printf "%s\\n" "stdin missing expected content" >&2',
-              `  exit 3`,
+              "  exit 3",
               "fi",
             ]
           : []),
@@ -128,7 +194,7 @@ function makeFakeCodexBinary(
           ? [
               `if printf "%s" "$stdin_content" | grep -F -- ${JSON.stringify(input.stdinMustNotContain)} >/dev/null; then`,
               '  printf "%s\\n" "stdin contained forbidden content" >&2',
-              `  exit 4`,
+              "  exit 4",
               "fi",
             ]
           : []),

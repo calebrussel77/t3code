@@ -16,6 +16,7 @@ release-mock/
 .t3
 .idea/
 .history
+.tmp/
 apps/web/.playwright
 apps/web/playwright-report
 apps/web/src/components/__screenshots__

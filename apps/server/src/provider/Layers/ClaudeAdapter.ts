@@ -137,6 +137,7 @@ interface ToolInFlight {
   readonly title: string;
   readonly detail?: string;
   readonly input: Record<string, unknown>;
+  readonly parentToolUseId?: string;
   readonly partialInputJson: string;
   readonly lastEmittedInputFingerprint?: string;
 }
@@ -462,7 +463,37 @@ function classifyRequestType(toolName: string): CanonicalRequestType {
       : "dynamic_tool_call";
 }
 
+function normalizeClaudeCollabToolKind(toolName: string): string | undefined {
+  const normalized = toolName.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return normalized
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .toLowerCase();
+}
+
 function summarizeToolRequest(toolName: string, input: Record<string, unknown>): string {
+  // Agent/Task tool calls: extract human-readable description instead of raw JSON
+  const normalizedName = toolName.toLowerCase();
+  if (
+    normalizedName === "agent" ||
+    normalizedName === "task" ||
+    normalizedName.includes("subagent") ||
+    normalizedName.includes("sub-agent")
+  ) {
+    const description =
+      typeof input.description === "string" ? input.description.trim() : undefined;
+    if (description && description.length > 0) {
+      return description.length > 400 ? `${description.slice(0, 397)}...` : description;
+    }
+    const prompt = typeof input.prompt === "string" ? input.prompt.trim() : undefined;
+    if (prompt && prompt.length > 0) {
+      return prompt.length > 200 ? `${prompt.slice(0, 197)}...` : prompt;
+    }
+  }
+
   const commandValue = input.command ?? input.cmd;
   const command = typeof commandValue === "string" ? commandValue : undefined;
   if (command && command.trim().length > 0) {
@@ -1412,9 +1443,13 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: status === "completed" ? "completed" : "failed",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...(tool.itemType === "collab_agent_tool_call"
+            ? { collabToolKind: normalizeClaudeCollabToolKind(tool.toolName) }
+            : {}),
           data: {
             toolName: tool.toolName,
             input: tool.input,
+            ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           },
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -1605,9 +1640,13 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             status: "inProgress",
             title: nextTool.title,
             ...(nextTool.detail ? { detail: nextTool.detail } : {}),
+            ...(nextTool.itemType === "collab_agent_tool_call"
+              ? { collabToolKind: normalizeClaudeCollabToolKind(nextTool.toolName) }
+              : {}),
             data: {
               toolName: nextTool.toolName,
               input: nextTool.input,
+              ...(nextTool.parentToolUseId ? { parentToolUseId: nextTool.parentToolUseId } : {}),
             },
           },
           providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
@@ -1647,14 +1686,32 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const detail = summarizeToolRequest(toolName, toolInput);
       const inputFingerprint =
         Object.keys(toolInput).length > 0 ? toolInputFingerprint(toolInput) : undefined;
+      const parentToolUseId =
+        typeof message.parent_tool_use_id === "string" && message.parent_tool_use_id.length > 0
+          ? message.parent_tool_use_id
+          : undefined;
+      const collabToolKind =
+        itemType === "collab_agent_tool_call" ? normalizeClaudeCollabToolKind(toolName) : undefined;
+
+      let toolTitle = titleForTool(itemType);
+      if (itemType === "collab_agent_tool_call") {
+        const subagentType =
+          typeof toolInput.subagent_type === "string" ? toolInput.subagent_type.trim() : "";
+        if (subagentType.length > 0) {
+          toolTitle = `Agent (${subagentType})`;
+        } else {
+          toolTitle = "Agent";
+        }
+      }
 
       const tool: ToolInFlight = {
         itemId,
         itemType,
         toolName,
-        title: titleForTool(itemType),
+        title: toolTitle,
         detail,
         input: toolInput,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
         partialInputJson: "",
         ...(inputFingerprint ? { lastEmittedInputFingerprint: inputFingerprint } : {}),
       };
@@ -1674,9 +1731,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...(collabToolKind ? { collabToolKind } : {}),
           data: {
             toolName: tool.toolName,
             input: toolInput,
+            ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           },
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -1733,6 +1792,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         toolName: tool.toolName,
         input: tool.input,
         result: toolResult.block,
+        ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
       };
 
       const updatedStamp = yield* makeEventStamp();
@@ -1749,6 +1809,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: toolResult.isError ? "failed" : "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...(tool.itemType === "collab_agent_tool_call"
+            ? { collabToolKind: normalizeClaudeCollabToolKind(tool.toolName) }
+            : {}),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -1797,6 +1860,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: itemStatus,
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...(tool.itemType === "collab_agent_tool_call"
+            ? { collabToolKind: normalizeClaudeCollabToolKind(tool.toolName) }
+            : {}),
           data: toolData,
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),

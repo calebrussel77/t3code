@@ -567,10 +567,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             try: async () => {
               const skillsMap = new Map<string, ClaudeSkill>();
 
-              const collectSkillsFromDir = async (
-                dir: string,
-                scope: "personal" | "project",
-              ) => {
+              const collectSkillsFromDir = async (dir: string, scope: "personal" | "project") => {
                 try {
                   const entries = await fs.readdir(dir, { withFileTypes: true });
                   const candidates = entries.filter(
@@ -638,8 +635,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               // Project-level skills (override global): .claude for claudeAgent, .agents for codex
               const cwd = input.cwd;
               if (cwd) {
-                const projectBaseDir =
-                  input.provider === "codex" ? ".agents" : ".claude";
+                const projectBaseDir = input.provider === "codex" ? ".agents" : ".claude";
                 const projectSkillsDir = path.join(cwd, projectBaseDir, "skills");
                 await collectSkillsFromDir(projectSkillsDir, "project");
               }

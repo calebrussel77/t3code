@@ -815,6 +815,45 @@ describe("MessagesTimeline virtualization harness", () => {
     }
   });
 
+  it("keeps fully rendered work-log groups in sync with the virtualizer size", async () => {
+    const beforeMessages = createFillerMessages({
+      prefix: "before-worklog-full-group",
+      startOffsetSeconds: 0,
+      pairCount: 2,
+    });
+    const afterMessages = createFillerMessages({
+      prefix: "after-worklog-full-group",
+      startOffsetSeconds: 40,
+      pairCount: 8,
+    });
+    const workEntries = Array.from({ length: 12 }, (_, index) =>
+      createToolWorkEntry({
+        id: `target-work-full-group-${index}`,
+        offsetSeconds: 12 + index,
+        command: `Get-Content apps/web/package.json -TotalCount ${220 + index}`,
+      }),
+    );
+    const props = createBaseTimelineProps({
+      messages: [...beforeMessages, ...afterMessages],
+      workEntries,
+    });
+    const mounted = await mountMessagesTimeline({ props });
+
+    try {
+      const measurement = await measureTimelineRow({
+        host: mounted.host,
+        props,
+        targetRowId: workEntries[0]!.id,
+      });
+
+      expect(
+        Math.abs(measurement.actualHeightPx - measurement.virtualizerSizePx),
+      ).toBeLessThanOrEqual(8);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps the work-log row virtualizer size in sync after expanding a command panel", async () => {
     const beforeMessages = createFillerMessages({
       prefix: "before-work-entry-expand",
@@ -906,6 +945,72 @@ describe("MessagesTimeline virtualization harness", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("simplifies nested pwsh command labels in rendered work-log rows", async () => {
+    const beforeMessages = createFillerMessages({
+      prefix: "before-pwsh-command",
+      startOffsetSeconds: 0,
+      pairCount: 2,
+    });
+    const afterMessages = createFillerMessages({
+      prefix: "after-pwsh-command",
+      startOffsetSeconds: 40,
+      pairCount: 8,
+    });
+    const command = [
+      '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "python -c "from pathlib import Path',
+      "lines=Path('AGENTS.md').read_text().splitlines()",
+      "for i in range(230,270):",
+      "    if i <= len(lines):",
+      "        print(f'{i:04} {lines[i-1]}')\"",
+    ].join("\n");
+    const workEntries = [
+      createToolWorkEntry({
+        id: "target-work-entry-pwsh-wrapper",
+        offsetSeconds: 12,
+        label: "Ran command for 4s",
+        command,
+        detail: "ParserError",
+      }),
+    ];
+    const props = createBaseTimelineProps({
+      messages: [...beforeMessages, ...afterMessages],
+      workEntries,
+    });
+    const mounted = await mountMessagesTimeline({ props });
+
+    try {
+      const targetRowElement = await waitForElement(
+        () =>
+          mounted.host.querySelector<HTMLElement>(`[data-timeline-row-id="${workEntries[0]!.id}"]`),
+        "Unable to locate pwsh work-log row.",
+      );
+      expect(targetRowElement.textContent).toContain("Ran python -c");
+      expect(targetRowElement.textContent).not.toContain("pwsh.exe");
+      expect(targetRowElement.textContent).not.toContain(" -Command ");
+
+      const commandToggle = targetRowElement.querySelector<HTMLButtonElement>(
+        `[data-work-entry-toggle="${workEntries[0]!.id}"]`,
+      );
+      expect(commandToggle, "Unable to locate pwsh work-entry toggle button.").toBeTruthy();
+
+      commandToggle!.click();
+      await waitForLayout();
+
+      const commandPanel = await waitForElement(
+        () =>
+          mounted.host.querySelector<HTMLElement>(
+            `[data-work-entry-panel="${workEntries[0]!.id}"]`,
+          ),
+        "Unable to locate pwsh work-entry panel.",
+      );
+      expect(commandPanel.textContent).toContain("python -c");
+      expect(commandPanel.textContent).not.toContain("pwsh.exe");
+      expect(commandPanel.textContent).not.toContain(" -Command ");
     } finally {
       await mounted.cleanup();
     }

@@ -19,6 +19,7 @@ import type {
   ThreadSession,
   TurnDiffSummary,
 } from "./types";
+import { isCodexAgentWidgetEntry, isInlineAgentEntry } from "./agentWorkEntries";
 import { normalizeCompactToolLabel } from "./workLogEntry";
 
 export type ProviderPickerKind = ProviderKind | "cursor";
@@ -43,7 +44,15 @@ export interface WorkLogEntry {
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
+  itemStatus?: "inProgress" | "completed" | "failed" | "declined";
   requestKind?: PendingApproval["requestKind"];
+  toolItemId?: string;
+  parentToolUseId?: string;
+  collabToolKind?: string;
+  /** For sub-agent tool calls: the full prompt/instruction given to the agent */
+  subagentPrompt?: string;
+  /** For reasoning/task.progress entries: the name of the last tool executed */
+  lastToolName?: string;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -463,7 +472,7 @@ export function deriveWorkLogEntries(
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
-    .filter((activity) => activity.kind !== "tool.started")
+    .filter((activity) => shouldIncludeWorkLogActivity(activity))
     .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
     .filter((activity) => activity.kind !== "context-window.updated")
     .filter((activity) => activity.summary !== "Checkpoint captured")
@@ -472,6 +481,26 @@ export function deriveWorkLogEntries(
   return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
+}
+
+function shouldIncludeWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  if (
+    activity.kind !== "tool.started" &&
+    activity.kind !== "tool.updated" &&
+    activity.kind !== "tool.completed"
+  ) {
+    return true;
+  }
+
+  const payload = asRecord(activity.payload);
+  if (extractWorkLogItemType(payload) !== "collab_agent_tool_call") {
+    return true;
+  }
+
+  return isInlineAgentEntry({
+    itemType: "collab_agent_tool_call",
+    collabToolKind: extractCollabToolKind(payload),
+  });
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -524,11 +553,31 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (itemType) {
     entry.itemType = itemType;
   }
+  const itemStatus = extractWorkLogItemStatus(payload);
+  if (itemStatus) {
+    entry.itemStatus = itemStatus;
+  }
   if (requestKind) {
     entry.requestKind = requestKind;
   }
   if (toolItemId) {
     entry.toolItemId = toolItemId;
+  }
+  const parentToolUseId = extractParentToolUseId(payload);
+  if (parentToolUseId) {
+    entry.parentToolUseId = parentToolUseId;
+  }
+  const collabToolKind = extractCollabToolKind(payload);
+  if (collabToolKind) {
+    entry.collabToolKind = collabToolKind;
+  }
+  const subagentPrompt = extractSubagentPrompt(payload);
+  if (subagentPrompt) {
+    entry.subagentPrompt = subagentPrompt;
+  }
+  const lastToolName = extractLastToolName(payload);
+  if (lastToolName) {
+    entry.lastToolName = lastToolName;
   }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
@@ -541,11 +590,42 @@ function collapseDerivedWorkLogEntries(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
 ): DerivedWorkLogEntry[] {
   const collapsed: DerivedWorkLogEntry[] = [];
+  // Map from collapseKey → index in collapsed array for pending tool.updated entries.
+  // This allows collapsing tool.updated + tool.completed even when interleaved
+  // with task.progress entries or other parallel agent tool calls.
+  const pendingToolByKey = new Map<string, number>();
+
   for (const entry of entries) {
+    if (
+      (entry.activityKind === "tool.started" ||
+        entry.activityKind === "tool.updated" ||
+        entry.activityKind === "tool.completed") &&
+      entry.collapseKey
+    ) {
+      const pendingIndex = pendingToolByKey.get(entry.collapseKey);
+      if (pendingIndex !== undefined) {
+        const pending = collapsed[pendingIndex]!;
+        if (shouldCollapseToolLifecycleEntries(pending, entry)) {
+          collapsed[pendingIndex] = mergeDerivedWorkLogEntries(pending, entry);
+          if (entry.activityKind === "tool.completed") {
+            pendingToolByKey.delete(entry.collapseKey);
+          }
+          continue;
+        }
+      }
+    }
+
     const previous = collapsed.at(-1);
     if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
       collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
       continue;
+    }
+
+    if (
+      (entry.activityKind === "tool.started" || entry.activityKind === "tool.updated") &&
+      entry.collapseKey
+    ) {
+      pendingToolByKey.set(entry.collapseKey, collapsed.length);
     }
     collapsed.push(entry);
   }
@@ -556,10 +636,18 @@ function shouldCollapseToolLifecycleEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): boolean {
-  if (previous.activityKind !== "tool.updated" && previous.activityKind !== "tool.completed") {
+  if (
+    previous.activityKind !== "tool.started" &&
+    previous.activityKind !== "tool.updated" &&
+    previous.activityKind !== "tool.completed"
+  ) {
     return false;
   }
-  if (next.activityKind !== "tool.updated" && next.activityKind !== "tool.completed") {
+  if (
+    next.activityKind !== "tool.started" &&
+    next.activityKind !== "tool.updated" &&
+    next.activityKind !== "tool.completed"
+  ) {
     return false;
   }
   if (previous.activityKind === "tool.completed") {
@@ -579,6 +667,12 @@ function mergeDerivedWorkLogEntries(
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
+  const itemStatus = next.itemStatus ?? previous.itemStatus;
+  const toolItemId = next.toolItemId ?? previous.toolItemId;
+  const parentToolUseId = next.parentToolUseId ?? previous.parentToolUseId;
+  const collabToolKind = next.collabToolKind ?? previous.collabToolKind;
+  const subagentPrompt = next.subagentPrompt ?? previous.subagentPrompt;
+  const lastToolName = next.lastToolName ?? previous.lastToolName;
   return {
     ...previous,
     ...next,
@@ -587,8 +681,14 @@ function mergeDerivedWorkLogEntries(
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
+    ...(itemStatus ? { itemStatus } : {}),
     ...(requestKind ? { requestKind } : {}),
+    ...(toolItemId ? { toolItemId } : {}),
+    ...(parentToolUseId ? { parentToolUseId } : {}),
+    ...(collabToolKind ? { collabToolKind } : {}),
     ...(collapseKey ? { collapseKey } : {}),
+    ...(subagentPrompt ? { subagentPrompt } : {}),
+    ...(lastToolName ? { lastToolName } : {}),
   };
 }
 
@@ -604,7 +704,11 @@ function mergeChangedFiles(
 }
 
 function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
-  if (entry.activityKind !== "tool.updated" && entry.activityKind !== "tool.completed") {
+  if (
+    entry.activityKind !== "tool.started" &&
+    entry.activityKind !== "tool.updated" &&
+    entry.activityKind !== "tool.completed"
+  ) {
     return undefined;
   }
   if (entry.toolItemId) {
@@ -662,12 +766,14 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
+  const dataInput = asRecord(data?.input);
   const detailCandidate =
     payload?.itemType === "command_execution" ? normalizeCommandDetail(payload?.detail) : null;
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
     normalizeCommandValue(itemResult?.command),
+    normalizeCommandValue(dataInput?.command),
     normalizeCommandValue(data?.command),
     detailCandidate,
   ];
@@ -700,7 +806,11 @@ function normalizeOutputValue(value: unknown): string | null {
       if (typeof entry === "string") {
         return stripTrailingExitCode(entry).output;
       }
-      if (entry && typeof entry === "object" && typeof (entry as { text?: unknown }).text === "string") {
+      if (
+        entry &&
+        typeof entry === "object" &&
+        typeof (entry as { text?: unknown }).text === "string"
+      ) {
         return stripTrailingExitCode((entry as { text: string }).text).output;
       }
       return null;
@@ -719,10 +829,7 @@ function outputFromSource(source: Record<string, unknown> | null): string | null
   return (
     normalizeOutputValue(source.content) ??
     normalizeOutputValue(source.output) ??
-    joinOutputSegments([
-      normalizeOutputValue(source.stdout),
-      normalizeOutputValue(source.stderr),
-    ])
+    joinOutputSegments([normalizeOutputValue(source.stdout), normalizeOutputValue(source.stderr)])
   );
 }
 
@@ -770,10 +877,60 @@ function extractWorkLogItemType(
   return undefined;
 }
 
+function extractWorkLogItemStatus(
+  payload: Record<string, unknown> | null,
+): WorkLogEntry["itemStatus"] | undefined {
+  return payload?.status === "inProgress" ||
+    payload?.status === "completed" ||
+    payload?.status === "failed" ||
+    payload?.status === "declined"
+    ? payload.status
+    : undefined;
+}
+
 function extractWorkLogItemId(payload: Record<string, unknown> | null): string | undefined {
   return typeof payload?.itemId === "string" && payload.itemId.length > 0
     ? payload.itemId
     : undefined;
+}
+
+function extractParentToolUseId(payload: Record<string, unknown> | null): string | undefined {
+  const data = asRecord(payload?.data);
+  return typeof data?.parentToolUseId === "string" && data.parentToolUseId.length > 0
+    ? data.parentToolUseId
+    : undefined;
+}
+
+function extractCollabToolKind(payload: Record<string, unknown> | null): string | undefined {
+  if (typeof payload?.collabToolKind === "string" && payload.collabToolKind.length > 0) {
+    return payload.collabToolKind;
+  }
+
+  const data = asRecord(payload?.data);
+  const input = asRecord(data?.input);
+  const toolName = asTrimmedString(data?.toolName) ?? asTrimmedString(payload?.title);
+  const subagentType = asTrimmedString(input?.subagent_type);
+
+  if (toolName?.toLowerCase() === "agent" && subagentType) {
+    return "task";
+  }
+
+  return undefined;
+}
+
+function extractSubagentPrompt(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  // Claude: data.input.prompt
+  const input = asRecord(data?.input);
+  const fromInput = asTrimmedString(input?.prompt);
+  if (fromInput) return fromInput;
+  // Codex: data.item.prompt or data.prompt
+  const item = asRecord(data?.item);
+  return asTrimmedString(item?.prompt) ?? asTrimmedString(data?.prompt);
+}
+
+function extractLastToolName(payload: Record<string, unknown> | null): string | null {
+  return asTrimmedString(payload?.lastToolName);
 }
 
 function extractWorkLogRequestKind(
@@ -995,4 +1152,120 @@ export function derivePhase(session: ThreadSession | null): SessionPhase {
   if (session.status === "connecting") return "connecting";
   if (session.status === "running") return "running";
   return "ready";
+}
+
+export interface CodexAgentEntry {
+  /** Unique ID — the itemId from the collab_agent_tool_call activity */
+  id: string;
+  /** The prompt / description given to the agent (truncated for display) */
+  prompt: string;
+  /** Agent lifecycle status */
+  status: "in_progress" | "completed" | "errored";
+}
+
+/** Labels that are generic lifecycle summaries, not real agent prompts */
+const GENERIC_COLLAB_LABELS = new Set([
+  "tool started",
+  "tool",
+  "tool updated",
+  "agent",
+  "agent started",
+]);
+
+/**
+ * Derive active Codex sub-agents from the session's thread activities.
+ *
+ * Codex uses a single item type (`collabAgentToolCall`) for every spawned
+ * sub-agent.  Each unique `itemId` with `collab_agent_tool_call` type
+ * represents one agent.  We group all lifecycle events per `itemId`, then
+ * keep only entries that carry a meaningful agent prompt (filtering out
+ * generic "Tool started" noise).
+ *
+ * `tool.completed` for a collab item just means the spawn call returned —
+ * NOT that the agent finished its work.  While the turn is still running
+ * (`isWorking`) all agents stay `in_progress`.  Once the turn ends they
+ * are marked `completed` (or `errored`).
+ */
+export interface CodexAgentSkeleton {
+  id: string;
+  prompt: string;
+  errored: boolean;
+}
+
+/**
+ * Collect Codex sub-agent skeletons from activities (expensive — sort + scan).
+ * Separate from status resolution so callers can memoize independently.
+ */
+export function collectCodexAgentSkeletons(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  latestTurnId: TurnId | undefined,
+): CodexAgentSkeleton[] {
+  const lifecycle = new Map<
+    string,
+    {
+      errored: boolean;
+      detail: string | null;
+    }
+  >();
+
+  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  for (const activity of ordered) {
+    if (latestTurnId && activity.turnId !== latestTurnId) continue;
+
+    const isToolLifecycle =
+      activity.kind === "tool.started" ||
+      activity.kind === "tool.updated" ||
+      activity.kind === "tool.completed";
+    if (!isToolLifecycle) continue;
+
+    const payload = asRecord(activity.payload);
+    if (payload?.itemType !== "collab_agent_tool_call") continue;
+    if (
+      !isCodexAgentWidgetEntry({
+        itemType: "collab_agent_tool_call",
+        collabToolKind: extractCollabToolKind(payload),
+      })
+    ) {
+      continue;
+    }
+
+    const itemId = asTrimmedString(payload?.itemId);
+    if (!itemId) continue;
+
+    let entry = lifecycle.get(itemId);
+    if (!entry) {
+      entry = { errored: false, detail: null };
+      lifecycle.set(itemId, entry);
+    }
+
+    if (activity.kind === "tool.completed" && activity.tone === "error") {
+      entry.errored = true;
+    }
+
+    const detail = asTrimmedString(payload?.detail);
+    if (detail && (!entry.detail || detail.length > entry.detail.length)) {
+      entry.detail = detail;
+    }
+  }
+
+  const skeletons: CodexAgentSkeleton[] = [];
+  for (const [itemId, entry] of lifecycle) {
+    const prompt = entry.detail;
+    if (!prompt || GENERIC_COLLAB_LABELS.has(prompt.toLowerCase())) continue;
+    const truncated = prompt.length > 120 ? `${prompt.slice(0, 117)}...` : prompt;
+    skeletons.push({ id: itemId, prompt: truncated, errored: entry.errored });
+  }
+  return skeletons;
+}
+
+/** Stamp status onto pre-collected skeletons (cheap — no sort needed). */
+export function resolveCodexAgentEntries(
+  skeletons: ReadonlyArray<CodexAgentSkeleton>,
+  isWorking: boolean,
+): CodexAgentEntry[] {
+  return skeletons.map((s) => ({
+    id: s.id,
+    prompt: s.prompt,
+    status: s.errored ? "errored" : isWorking ? "in_progress" : "completed",
+  }));
 }

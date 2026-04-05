@@ -1,25 +1,25 @@
 import {
-    type ApprovalRequestId,
-    DEFAULT_MODEL_BY_PROVIDER,
-    type ClaudeCodeEffort,
-    type MessageId,
-    type ModelSelection,
-    type ProjectScript,
-    type ProviderKind,
-    type ClaudeSkill,
-    type ProjectEntry,
-    type ProjectId,
-    type ProviderApprovalDecision,
-    PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-    PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-    type ServerProvider,
-    type ThreadId,
-    type TurnId,
-    type KeybindingCommand,
-    OrchestrationThreadActivity,
-    ProviderInteractionMode,
-    RuntimeMode,
-    TerminalOpenInput,
+  type ApprovalRequestId,
+  DEFAULT_MODEL_BY_PROVIDER,
+  type ClaudeCodeEffort,
+  type MessageId,
+  type ModelSelection,
+  type ProjectScript,
+  type ProviderKind,
+  type ClaudeSkill,
+  type ProjectEntry,
+  type ProjectId,
+  type ProviderApprovalDecision,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+  type ServerProvider,
+  type ThreadId,
+  type TurnId,
+  type KeybindingCommand,
+  OrchestrationThreadActivity,
+  ProviderInteractionMode,
+  RuntimeMode,
+  TerminalOpenInput,
 } from "@t3tools/contracts";
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
@@ -34,55 +34,57 @@ import { skillListQueryOptions } from "~/lib/skillReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
-    clampCollapsedComposerCursor,
-    type ComposerTrigger,
-    collapseExpandedComposerCursor,
-    detectComposerTrigger,
-    expandCollapsedComposerCursor,
-    parseStandaloneComposerSlashCommand,
-    replaceTextRange,
+  clampCollapsedComposerCursor,
+  type ComposerTrigger,
+  collapseExpandedComposerCursor,
+  detectComposerTrigger,
+  expandCollapsedComposerCursor,
+  parseStandaloneComposerSlashCommand,
+  replaceTextRange,
 } from "../composer-logic";
 import {
-    deriveCompletionDividerBeforeEntryId,
-    derivePendingApprovals,
-    derivePendingUserInputs,
-    derivePhase,
-    deriveTimelineEntries,
-    deriveActiveWorkStartedAt,
-    deriveActivePlanState,
-    findSidebarProposedPlan,
-    findLatestProposedPlan,
-    deriveWorkLogEntries,
-    hasActionableProposedPlan,
-    hasToolActivityForTurn,
-    isLatestTurnSettled,
-    formatElapsed,
+  deriveCompletionDividerBeforeEntryId,
+  derivePendingApprovals,
+  derivePendingUserInputs,
+  derivePhase,
+  deriveTimelineEntries,
+  deriveActiveWorkStartedAt,
+  deriveActivePlanState,
+  findSidebarProposedPlan,
+  findLatestProposedPlan,
+  deriveWorkLogEntries,
+  collectCodexAgentSkeletons,
+  resolveCodexAgentEntries,
+  hasActionableProposedPlan,
+  hasToolActivityForTurn,
+  isLatestTurnSettled,
+  formatElapsed,
 } from "../session-logic";
 import { isScrollContainerNearBottom } from "../chat-scroll";
 import {
-    buildPendingUserInputAnswers,
-    derivePendingUserInputProgress,
-    setPendingUserInputCustomAnswer,
-    type PendingUserInputDraftAnswer,
+  buildPendingUserInputAnswers,
+  derivePendingUserInputProgress,
+  setPendingUserInputCustomAnswer,
+  type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import {
-    buildPlanImplementationThreadTitle,
-    buildPlanImplementationPrompt,
-    proposedPlanTitle,
-    resolvePlanFollowUpSubmission,
+  buildPlanImplementationThreadTitle,
+  buildPlanImplementationPrompt,
+  proposedPlanTitle,
+  resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import {
-    DEFAULT_INTERACTION_MODE,
-    DEFAULT_RUNTIME_MODE,
-    DEFAULT_THREAD_TERMINAL_ID,
-    MAX_TERMINALS_PER_GROUP,
-    type ChatMessage,
-    type SessionPhase,
-    type Thread,
-    type TurnDiffSummary,
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  DEFAULT_THREAD_TERMINAL_ID,
+  MAX_TERMINALS_PER_GROUP,
+  type ChatMessage,
+  type SessionPhase,
+  type Thread,
+  type TurnDiffSummary,
 } from "../types";
 import { LRUCache } from "../lib/lruCache";
 
@@ -94,15 +96,15 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
-    BotIcon,
-    ChevronDownIcon,
-    ChevronLeftIcon,
-    ChevronRightIcon,
-    CircleAlertIcon,
-    ListTodoIcon,
-    LockIcon,
-    LockOpenIcon,
-    XIcon,
+  BotIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CircleAlertIcon,
+  ListTodoIcon,
+  LockIcon,
+  LockOpenIcon,
+  XIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -112,43 +114,43 @@ import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
-    commandForProjectScript,
-    nextProjectScriptId,
-    projectScriptIdFromCommand,
+  commandForProjectScript,
+  nextProjectScriptId,
+  projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
-    getProviderModelCapabilities,
-    getProviderModels,
-    resolveSelectableProvider,
+  getProviderModelCapabilities,
+  getProviderModels,
+  resolveSelectableProvider,
 } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
-    type ComposerImageAttachment,
-    type DraftThreadEnvMode,
-    type PersistedComposerImageAttachment,
-    useComposerDraftStore,
-    useEffectiveComposerModelState,
-    useComposerThreadDraft,
+  type ComposerImageAttachment,
+  type DraftThreadEnvMode,
+  type PersistedComposerImageAttachment,
+  useComposerDraftStore,
+  useEffectiveComposerModelState,
+  useComposerThreadDraft,
 } from "../composerDraftStore";
 import {
-    appendTerminalContextsToPrompt,
-    formatTerminalContextLabel,
-    insertInlineTerminalContextPlaceholder,
-    removeInlineTerminalContextPlaceholder,
-    type TerminalContextDraft,
-    type TerminalContextSelection,
+  appendTerminalContextsToPrompt,
+  formatTerminalContextLabel,
+  insertInlineTerminalContextPlaceholder,
+  removeInlineTerminalContextPlaceholder,
+  type TerminalContextDraft,
+  type TerminalContextSelection,
 } from "../lib/terminalContext";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import {
-    resolveComposerFooterContentWidth,
-    shouldForceCompactComposerFooterForFit,
-    shouldUseCompactComposerPrimaryActions,
-    shouldUseCompactComposerFooter,
+  resolveComposerFooterContentWidth,
+  shouldForceCompactComposerFooterForFit,
+  shouldUseCompactComposerPrimaryActions,
+  shouldUseCompactComposerFooter,
 } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
@@ -165,39 +167,40 @@ import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
+import { AgentWidget } from "./chat/AgentWidget";
 import {
-    getComposerProviderState,
-    renderProviderTraitsMenuContent,
-    renderProviderTraitsPicker,
+  getComposerProviderState,
+  renderProviderTraitsMenuContent,
+  renderProviderTraitsPicker,
 } from "./chat/composerProviderRegistry";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
-    MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
-    buildExpiredTerminalContextToastCopy,
-    buildLocalDraftThread,
-    buildTemporaryWorktreeBranchName,
-    cloneComposerImageForRetry,
-    collectUserMessageBlobPreviewUrls,
-    createLocalDispatchSnapshot,
-    deriveComposerSendState,
-    hasServerAcknowledgedLocalDispatch,
-    LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
-    LastInvokedScriptByProjectSchema,
-    type LocalDispatchSnapshot,
-    PullRequestDialogState,
-    readFileAsDataUrl,
-    reconcileMountedTerminalThreadIds,
-    revokeBlobPreviewUrl,
-    revokeUserMessagePreviewUrls,
-    threadHasStarted,
-    waitForStartedServerThread,
+  MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  buildExpiredTerminalContextToastCopy,
+  buildLocalDraftThread,
+  buildTemporaryWorktreeBranchName,
+  cloneComposerImageForRetry,
+  collectUserMessageBlobPreviewUrls,
+  createLocalDispatchSnapshot,
+  deriveComposerSendState,
+  hasServerAcknowledgedLocalDispatch,
+  LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
+  LastInvokedScriptByProjectSchema,
+  type LocalDispatchSnapshot,
+  PullRequestDialogState,
+  readFileAsDataUrl,
+  reconcileMountedTerminalThreadIds,
+  revokeBlobPreviewUrl,
+  revokeUserMessagePreviewUrls,
+  threadHasStarted,
+  waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
-    useServerAvailableEditors,
-    useServerConfig,
-    useServerKeybindings,
+  useServerAvailableEditors,
+  useServerConfig,
+  useServerKeybindings,
 } from "~/rpc/serverState";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
@@ -1127,6 +1130,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const agentSkeletons = useMemo(
+    () => collectCodexAgentSkeletons(threadActivities, activeLatestTurn?.turnId ?? undefined),
+    [activeLatestTurn?.turnId, threadActivities],
+  );
+  const activeCodexAgents = useMemo(
+    () => resolveCodexAgentEntries(agentSkeletons, isWorking),
+    [agentSkeletons, isWorking],
+  );
   const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
@@ -4077,6 +4088,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
           {/* Input bar */}
           <div className={cn("px-3 sm:px-5", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+            {activeCodexAgents.length > 0 && (
+              <div className="mx-auto mb-2 w-full min-w-0 max-w-3xl">
+                <AgentWidget agents={activeCodexAgents} isStreaming={isWorking} />
+              </div>
+            )}
             <form
               ref={composerFormRef}
               onSubmit={onSend}

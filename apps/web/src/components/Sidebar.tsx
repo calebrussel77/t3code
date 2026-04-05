@@ -653,9 +653,7 @@ function SortableProjectItem({
         transform: CSS.Translate.toString(transform),
         transition,
       }}
-      className={`group/menu-item relative rounded-md ${
-        isDragging ? "z-20 opacity-50" : ""
-      }`}
+      className={`group/menu-item relative rounded-md ${isDragging ? "z-20 opacity-50" : ""}`}
       data-sidebar="menu-item"
       data-slot="sidebar-menu-item"
     >
@@ -1325,13 +1323,10 @@ export default function Sidebar() {
     [appSettings.sidebarProjectSortOrder, reorderProjects, sidebarProjects, updateSettings],
   );
 
-  const handleProjectDragStart = useCallback(
-    (event: DragStartEvent) => {
-      dragInProgressRef.current = true;
-      suppressProjectClickAfterDragRef.current = true;
-    },
-    [],
-  );
+  const handleProjectDragStart = useCallback((event: DragStartEvent) => {
+    dragInProgressRef.current = true;
+    suppressProjectClickAfterDragRef.current = true;
+  }, []);
 
   const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
     dragInProgressRef.current = false;
@@ -1594,12 +1589,7 @@ export default function Sidebar() {
             <span className="flex-1 text-sm truncate text-foreground/90">{project.name}</span>
           </SidebarMenuButton>
           <SidebarMenuAction
-            render={
-              <button
-                type="button"
-                aria-label={`Project options for ${project.name}`}
-              />
-            }
+            render={<button type="button" aria-label={`Project options for ${project.name}`} />}
             showOnHover
             className="top-1 right-7 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
             onClick={(event) => {
@@ -2111,9 +2101,7 @@ export default function Sidebar() {
                 >
                   <SidebarMenu>
                     <SortableContext
-                      items={renderedProjects.map(
-                        (renderedProject) => renderedProject.project.id,
-                      )}
+                      items={renderedProjects.map((renderedProject) => renderedProject.project.id)}
                       strategy={verticalListSortingStrategy}
                     >
                       {renderedProjects.map((renderedProject) => (
@@ -2121,9 +2109,7 @@ export default function Sidebar() {
                           key={renderedProject.project.id}
                           projectId={renderedProject.project.id}
                         >
-                          {(dragHandleProps) =>
-                            renderProjectItem(renderedProject, dragHandleProps)
-                          }
+                          {(dragHandleProps) => renderProjectItem(renderedProject, dragHandleProps)}
                         </SortableProjectItem>
                       ))}
                     </SortableContext>

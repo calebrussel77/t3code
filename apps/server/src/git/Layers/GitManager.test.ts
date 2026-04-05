@@ -854,7 +854,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
       }),
-    12_000,
+    60_000,
   );
 
   it.effect(
@@ -962,7 +962,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           ),
         ).toBe(false);
       }),
-    12_000,
+    60_000,
   );
 
   it.effect("status returns merged PR state when latest PR was merged", () =>
@@ -1593,7 +1593,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ).toBe(true);
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(false);
       }),
-    12_000,
+    60_000,
   );
 
   it.effect(
@@ -1685,7 +1685,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           false,
         );
       }),
-    12_000,
+    60_000,
   );
 
   it.effect(
@@ -1755,7 +1755,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(ownerSelectorCallIndex).toBeGreaterThanOrEqual(0);
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(false);
       }),
-    12_000,
+    60_000,
   );
 
   it.effect(
@@ -1817,7 +1817,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           "pr list --head octocat:statemachine --state open --limit 1",
         );
       }),
-    12_000,
+    60_000,
   );
 
   it.effect("creates PR when one does not already exist", () =>

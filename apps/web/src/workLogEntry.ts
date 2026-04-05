@@ -37,6 +37,8 @@ function humanizeToolLabel(value: string): string {
       return "Web";
     case "image view":
       return "Image";
+    case "subagent task":
+      return "Agent";
     default:
       return capitalizePhrase(normalized);
   }
@@ -51,46 +53,114 @@ export function toolWorkEntryHeading(
   return humanizeToolLabel(workEntry.label);
 }
 
-function summaryLabelWithCommand(label: string, command: string): string {
-  const normalizedCommand = command.trim();
-  if (normalizedCommand.length === 0) {
-    return label;
+/**
+ * Simplify shell wrapper commands for display.
+ * Handles powershell/pwsh -Command, cmd /c, quoted exe paths,
+ * and nested wrappers emitted by the terminal bridge on Windows.
+ */
+export function simplifyShellCommand(command: string): string {
+  let simplified = normalizeShellDisplayText(command);
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    const unwrapped = unwrapShellWrapper(simplified);
+    if (unwrapped === simplified) {
+      return simplified;
+    }
+    simplified = normalizeShellDisplayText(unwrapped);
   }
-  if (/^ran command\b/i.test(label)) {
-    return label.replace(/^ran command\b/i, `Ran ${normalizedCommand}`);
+
+  return simplified;
+}
+
+function unwrapShellWrapper(command: string): string {
+  const pwshMatch =
+    /^(?:"[^"]*?(?:pwsh|powershell)(?:\.exe)?"|'[^']*?(?:pwsh|powershell)(?:\.exe)?'|(?:[^\s"']*?(?:pwsh|powershell)(?:\.exe)?))(?:\s+-[A-Za-z]+(?:\s+(?:"[^"]*"|'[^']*'|[^\s]+))?)*\s+-Command\s+([\s\S]+)$/i.exec(
+      command,
+    );
+  if (pwshMatch?.[1]) {
+    return stripOuterShellArgumentQuotes(pwshMatch[1].trim());
   }
-  if (/^(?:command|exec command)\b/i.test(label)) {
-    return `Ran ${normalizedCommand}`;
+
+  const cmdMatch =
+    /^(?:"[^"]*?cmd(?:\.exe)?"|'[^']*?cmd(?:\.exe)?'|(?:[^\s"']*?cmd(?:\.exe)?))(?:\s+\/[A-Za-z]+)*\s+\/[cCkK]\s+([\s\S]+)$/i.exec(
+      command,
+    );
+  if (cmdMatch?.[1]) {
+    return stripOuterShellArgumentQuotes(cmdMatch[1].trim());
   }
-  return label;
+
+  return command;
+}
+
+function stripOuterShellArgumentQuotes(value: string): string {
+  if (value.length < 2) {
+    return value;
+  }
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function normalizeShellDisplayText(value: string): string {
+  let normalized = value.trim();
+  for (let depth = 0; depth < 4; depth += 1) {
+    const stripped = stripSurroundingQuotes(normalized);
+    const unescaped = stripped.replace(/\\"/g, '"').replace(/\\'/g, "'");
+    if (unescaped === normalized) {
+      return normalized;
+    }
+    normalized = unescaped.trim();
+  }
+  return normalized;
+}
+
+function stripSurroundingQuotes(value: string): string {
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if (
+      ((first === '"' && last === '"') || (first === "'" && last === "'")) &&
+      !value.slice(1, -1).includes(first)
+    ) {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
 }
 
 export function workEntrySummary(
   workEntry: Pick<MinimalWorkEntry, "label" | "toolTitle" | "command" | "requestKind" | "itemType">,
 ): string {
-  const normalizedLabel = normalizeCompactToolLabel(workEntry.label).replace(/[_-]+/g, " ").trim();
-  if (normalizedLabel.length === 0) {
-    if (
-      workEntry.command &&
-      (workEntry.requestKind === "command" || workEntry.itemType === "command_execution")
-    ) {
-      return `Ran ${workEntry.command}`;
-    }
-    return toolWorkEntryHeading(workEntry);
-  }
   if (
     workEntry.command &&
     (workEntry.requestKind === "command" || workEntry.itemType === "command_execution")
   ) {
-    return summaryLabelWithCommand(capitalizePhrase(normalizedLabel), workEntry.command);
+    return `Ran ${simplifyShellCommand(workEntry.command)}`;
   }
-  return capitalizePhrase(normalizedLabel);
+
+  const normalizedLabel = normalizeCompactToolLabel(workEntry.label).replace(/[_-]+/g, " ").trim();
+  if (normalizedLabel.length === 0) {
+    return toolWorkEntryHeading(workEntry);
+  }
+  return simplifyRanLabel(capitalizePhrase(normalizedLabel));
+}
+
+/** If a label starts with "Ran " and contains a shell wrapper, simplify it. */
+export function simplifyRanLabel(label: string): string {
+  const ranMatch = /^Ran\s+(.+?)(?:\s+for\s+.+)?$/i.exec(label);
+  if (!ranMatch?.[1]) return label;
+  const simplified = simplifyShellCommand(ranMatch[1]);
+  if (simplified === ranMatch[1]) return label;
+  return `Ran ${simplified}`;
 }
 
 export function workEntryPreview(
   workEntry: Pick<MinimalWorkEntry, "detail" | "command" | "changedFiles">,
 ): string | null {
-  if (workEntry.command) return workEntry.command;
+  if (workEntry.command) return simplifyShellCommand(workEntry.command);
   if (workEntry.detail) return workEntry.detail;
   const files = workEntry.changedFiles;
   if (!files || files.length === 0) return null;

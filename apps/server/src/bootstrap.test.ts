@@ -36,6 +36,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 const TestEnvelopeSchema = Schema.Struct({ mode: Schema.String });
+const supportsNamedPipesViaMkfifo = process.platform !== "win32";
 
 it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
   it.effect("uses platform-specific fd paths", () =>
@@ -48,6 +49,10 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("reads a bootstrap envelope from a provided fd", () =>
     Effect.gen(function* () {
+      if (process.platform === "win32") {
+        return;
+      }
+
       const fs = yield* FileSystem.FileSystem;
       const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
 
@@ -60,7 +65,20 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
       const fd = yield* Effect.acquireRelease(
         Effect.sync(() => NFS.openSync(filePath, "r")),
-        (fd) => Effect.sync(() => NFS.closeSync(fd)),
+        (fd) =>
+          Effect.sync(() => {
+            try {
+              NFS.closeSync(fd);
+            } catch (error) {
+              if (
+                !(error instanceof Error) ||
+                !("code" in error) ||
+                (error as NodeJS.ErrnoException).code !== "EBADF"
+              ) {
+                throw error;
+              }
+            }
+          }),
       );
 
       const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, fd, { timeoutMs: 100 });
@@ -72,6 +90,10 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("falls back to reading the inherited fd when path duplication fails", () =>
     Effect.gen(function* () {
+      if (process.platform === "win32") {
+        return;
+      }
+
       const fs = yield* FileSystem.FileSystem;
       const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
 
@@ -102,6 +124,10 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("returns none when the fd is unavailable", () =>
     Effect.gen(function* () {
+      if (process.platform === "win32") {
+        return;
+      }
+
       const fd = NFS.openSync("/dev/null", "r");
       NFS.closeSync(fd);
 
@@ -112,6 +138,10 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
 
   it.effect("returns none when the bootstrap read times out before any value arrives", () =>
     Effect.gen(function* () {
+      if (!supportsNamedPipesViaMkfifo) {
+        return;
+      }
+
       const fs = yield* FileSystem.FileSystem;
       const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-bootstrap-" });
       const fifoPath = path.join(tempDir, "bootstrap.pipe");

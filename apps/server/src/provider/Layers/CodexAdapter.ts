@@ -181,6 +181,19 @@ function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "i
   }
 }
 
+/**
+ * Extract the specific collab tool kind from a raw item type like
+ * `collabSpawnAgent` → `spawn_agent`, `collabWaitForAgents` → `wait_for_agents`, etc.
+ */
+function normalizeCollabToolKind(raw: unknown): string | undefined {
+  const type = asString(raw);
+  if (!type) return undefined;
+  const match = /^collab[._-]?(.+)$/i.exec(type);
+  if (!match?.[1]) return undefined;
+  // Convert camelCase remainder to snake_case
+  return match[1].replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
 function normalizeItemType(raw: unknown): string {
   const type = asString(raw);
   if (!type) return "item";
@@ -231,6 +244,8 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
       return "MCP tool call";
     case "dynamic_tool_call":
       return "Tool call";
+    case "collab_agent_tool_call":
+      return "Agent";
     case "web_search":
       return "Web search";
     case "image_view":
@@ -563,6 +578,11 @@ function mapItemLifecycle(
         ? "completed"
         : undefined;
 
+  const collabToolKind =
+    itemType === "collab_agent_tool_call"
+      ? normalizeCollabToolKind(source.type ?? source.kind)
+      : undefined;
+
   return {
     ...runtimeEventBase(event, canonicalThreadId),
     type: lifecycle,
@@ -571,6 +591,7 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
       ...(detail ? { detail } : {}),
+      ...(collabToolKind ? { collabToolKind } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };

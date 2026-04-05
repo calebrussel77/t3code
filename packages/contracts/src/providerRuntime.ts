@@ -397,6 +397,8 @@ export const ItemLifecyclePayload = Schema.Struct({
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** For collab_agent_tool_call items: the specific collab tool kind (e.g. "spawn_agent") */
+  collabToolKind: Schema.optional(TrimmedNonEmptyStringSchema),
   data: Schema.optional(Schema.Unknown),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;

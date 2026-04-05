@@ -1033,7 +1033,92 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(toolStarted?.type, "item.started");
       if (toolStarted?.type === "item.started") {
         assert.equal(toolStarted.payload.itemType, "collab_agent_tool_call");
-        assert.equal(toolStarted.payload.title, "Subagent task");
+        assert.equal(toolStarted.payload.title, "Agent (code-reviewer)");
+        assert.equal(toolStarted.payload.collabToolKind, "task");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("preserves parent tool ids for Claude tools executed inside an agent task", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "delegate this",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-task-parent",
+        uuid: "stream-task-parent-1",
+        parent_tool_use_id: "tool-task-parent-1",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-bash-parent-1",
+            name: "Bash",
+            input: {
+              command: "ls src",
+            },
+          },
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-task-parent",
+        uuid: "assistant-task-parent-1",
+        parent_tool_use_id: null,
+        message: {
+          id: "assistant-message-task-parent-1",
+          content: [{ type: "text", text: "Delegated" }],
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-task-parent",
+        uuid: "result-task-parent-1",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const toolStarted = runtimeEvents.find(
+        (event) =>
+          event.type === "item.started" &&
+          event.itemId === "tool-bash-parent-1" &&
+          event.payload.itemType === "command_execution",
+      );
+      assert.equal(toolStarted?.type, "item.started");
+      if (toolStarted?.type === "item.started") {
+        assert.deepEqual(toolStarted.payload.data, {
+          toolName: "Bash",
+          input: {
+            command: "ls src",
+          },
+          parentToolUseId: "tool-task-parent-1",
+        });
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
