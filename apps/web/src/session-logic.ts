@@ -53,6 +53,10 @@ export interface WorkLogEntry {
   subagentPrompt?: string;
   /** For reasoning/task.progress entries: the name of the last tool executed */
   lastToolName?: string;
+  /** Raw tool name from the provider (e.g. "mcp__context7__query-docs", "Bash") */
+  toolName?: string;
+  /** Serialized JSON of tool input parameters */
+  toolInput?: string;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -579,6 +583,14 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (lastToolName) {
     entry.lastToolName = lastToolName;
   }
+  const rawToolName = extractRawToolName(payload);
+  if (rawToolName) {
+    entry.toolName = rawToolName;
+  }
+  const toolInput = extractToolInput(payload);
+  if (toolInput) {
+    entry.toolInput = toolInput;
+  }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
     entry.collapseKey = collapseKey;
@@ -673,6 +685,8 @@ function mergeDerivedWorkLogEntries(
   const collabToolKind = next.collabToolKind ?? previous.collabToolKind;
   const subagentPrompt = next.subagentPrompt ?? previous.subagentPrompt;
   const lastToolName = next.lastToolName ?? previous.lastToolName;
+  const toolName = next.toolName ?? previous.toolName;
+  const toolInput = next.toolInput ?? previous.toolInput;
   return {
     ...previous,
     ...next,
@@ -689,6 +703,8 @@ function mergeDerivedWorkLogEntries(
     ...(collapseKey ? { collapseKey } : {}),
     ...(subagentPrompt ? { subagentPrompt } : {}),
     ...(lastToolName ? { lastToolName } : {}),
+    ...(toolName ? { toolName } : {}),
+    ...(toolInput ? { toolInput } : {}),
   };
 }
 
@@ -931,6 +947,39 @@ function extractSubagentPrompt(payload: Record<string, unknown> | null): string 
 
 function extractLastToolName(payload: Record<string, unknown> | null): string | null {
   return asTrimmedString(payload?.lastToolName);
+}
+
+function extractRawToolName(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  return asTrimmedString(data?.toolName) ?? asTrimmedString(payload?.toolName);
+}
+
+function extractToolInput(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const input = data?.input;
+  if (input && typeof input === "object" && input !== null && Object.keys(input).length > 0) {
+    try {
+      return JSON.stringify(input, null, 2);
+    } catch {
+      return null;
+    }
+  }
+  // Codex: data.item.input
+  const item = asRecord(data?.item);
+  const itemInput = item?.input;
+  if (
+    itemInput &&
+    typeof itemInput === "object" &&
+    itemInput !== null &&
+    Object.keys(itemInput).length > 0
+  ) {
+    try {
+      return JSON.stringify(itemInput, null, 2);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function extractWorkLogRequestKind(

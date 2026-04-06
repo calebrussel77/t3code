@@ -10,10 +10,53 @@ type MinimalWorkEntry = Pick<
   | "tone"
   | "requestKind"
   | "itemType"
+  | "toolName"
+  | "toolInput"
 >;
 
 export function normalizeCompactToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
+}
+
+/** Parse an MCP tool name like "mcp__server__action" into server + action parts. */
+export function parseMcpToolName(toolName: string): {
+  serverName: string;
+  actionName: string;
+} | null {
+  const match = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(toolName);
+  if (!match?.[1] || !match[2]) return null;
+  return {
+    serverName: humanizeMcpServerName(match[1]),
+    actionName: match[2].replace(/_/g, "-"),
+  };
+}
+
+/** Humanize an MCP server name segment (e.g. "claude_ai_Canva" → "Canva"). */
+function humanizeMcpServerName(raw: string): string {
+  // Strip common prefixes like "claude_ai_"
+  const stripped = raw.replace(/^claude_ai_/i, "");
+  if (stripped.length > 0) return stripped;
+  return raw.replace(/_/g, " ");
+}
+
+function parseMcpFields(workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">): {
+  serverName: string;
+  actionName: string;
+} | null {
+  if (workEntry.toolName) {
+    const parsed = parseMcpToolName(workEntry.toolName);
+    if (parsed) return parsed;
+  }
+  const raw = workEntry.toolTitle ?? workEntry.label;
+  return parseMcpToolName(raw);
+}
+
+function mcpToolHeading(workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">): string {
+  return parseMcpFields(workEntry)?.actionName ?? "MCP tool";
+}
+
+export function mcpServerLabel(workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">): string | null {
+  return parseMcpFields(workEntry)?.serverName ?? null;
 }
 
 function capitalizePhrase(value: string): string {
@@ -45,8 +88,11 @@ function humanizeToolLabel(value: string): string {
 }
 
 export function toolWorkEntryHeading(
-  workEntry: Pick<MinimalWorkEntry, "toolTitle" | "label">,
+  workEntry: Pick<MinimalWorkEntry, "toolTitle" | "label" | "toolName" | "itemType">,
 ): string {
+  if (workEntry.itemType === "mcp_tool_call") {
+    return mcpToolHeading(workEntry);
+  }
   if (workEntry.toolTitle) {
     return humanizeToolLabel(workEntry.toolTitle);
   }
@@ -132,13 +178,19 @@ function stripSurroundingQuotes(value: string): string {
 }
 
 export function workEntrySummary(
-  workEntry: Pick<MinimalWorkEntry, "label" | "toolTitle" | "command" | "requestKind" | "itemType">,
+  workEntry: Pick<MinimalWorkEntry, "label" | "toolTitle" | "command" | "requestKind" | "itemType" | "toolName">,
 ): string {
   if (
     workEntry.command &&
     (workEntry.requestKind === "command" || workEntry.itemType === "command_execution")
   ) {
     return `Ran ${simplifyShellCommand(workEntry.command)}`;
+  }
+
+  if (workEntry.itemType === "mcp_tool_call") {
+    const parsed = parseMcpFields(workEntry);
+    if (parsed) return `${parsed.actionName} (${parsed.serverName})`;
+    return "MCP tool";
   }
 
   const normalizedLabel = normalizeCompactToolLabel(workEntry.label).replace(/[_-]+/g, " ").trim();
@@ -168,9 +220,9 @@ export function workEntryPreview(
 }
 
 export function workEntryHasExpandableContent(
-  workEntry: Pick<MinimalWorkEntry, "detail" | "command" | "changedFiles">,
+  workEntry: Pick<MinimalWorkEntry, "detail" | "command" | "changedFiles" | "toolInput">,
 ): boolean {
-  return workEntryPreview(workEntry) !== null;
+  return workEntryPreview(workEntry) !== null || Boolean(workEntry.toolInput);
 }
 
 export function workEntryPanelLabel(workEntry: MinimalWorkEntry): string {
@@ -196,6 +248,13 @@ export function workEntryPanelLabel(workEntry: MinimalWorkEntry): string {
   }
   if (workEntry.itemType === "image_view") {
     return "Image";
+  }
+  if (workEntry.itemType === "mcp_tool_call") {
+    const server = mcpServerLabel(workEntry);
+    return server ? `MCP · ${server}` : "MCP";
+  }
+  if (workEntry.itemType === "dynamic_tool_call") {
+    return toolWorkEntryHeading(workEntry);
   }
   return toolWorkEntryHeading(workEntry);
 }

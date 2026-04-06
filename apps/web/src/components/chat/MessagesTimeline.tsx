@@ -1,18 +1,18 @@
 import { type MessageId, type TurnId } from "@t3tools/contracts";
 import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
+    memo,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
 } from "react";
 import {
-  measureElement as measureVirtualElement,
-  type VirtualItem,
-  useVirtualizer,
+    measureElement as measureVirtualElement,
+    type VirtualItem,
+    useVirtualizer,
 } from "@tanstack/react-virtual";
 import { deriveTimelineEntries } from "../../session-logic";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
@@ -20,22 +20,22 @@ import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
-  BotIcon,
-  BrainIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  CircleAlertIcon,
-  CopyIcon,
-  EyeIcon,
-  GlobeIcon,
-  HammerIcon,
-  Loader2Icon,
-  type LucideIcon,
-  SquarePenIcon,
-  TerminalIcon,
-  Undo2Icon,
-  WrenchIcon,
-  ZapIcon,
+    BotIcon,
+    BrainIcon,
+    CheckIcon,
+    ChevronDownIcon,
+    CircleAlertIcon,
+    CopyIcon,
+    EyeIcon,
+    GlobeIcon,
+    HammerIcon,
+    Loader2Icon,
+    type LucideIcon,
+    SquarePenIcon,
+    TerminalIcon,
+    Undo2Icon,
+    WrenchIcon,
+    ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { clamp } from "effect/Number";
@@ -45,36 +45,39 @@ import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
 import {
-  deriveMessagesTimelineRows,
-  estimateMessagesTimelineRowHeight,
-  type MessagesTimelineRow,
+    deriveMessagesTimelineRows,
+    estimateMessagesTimelineRowHeight,
+    type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
 import { SkillInlineChip } from "./SkillInlineChip";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { groupWorkEntriesForTimeline, isReasoningUpdateWorkEntry } from "./workEntryGrouping";
 import {
-  deriveDisplayedUserMessageState,
-  type ParsedTerminalContextEntry,
+    deriveDisplayedUserMessageState,
+    type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import {
-  buildInlineTerminalContextText,
-  formatInlineTerminalContextLabel,
-  textContainsInlineTerminalContextLabels,
+    buildInlineTerminalContextText,
+    formatInlineTerminalContextLabel,
+    textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import {
-  simplifyShellCommand,
-  toolWorkEntryHeading,
-  workEntryHasExpandableContent,
-  workEntryPanelLabel,
-  workEntryOutputBody,
-  workEntryPreview,
-  workEntryStatusLabel,
-  workEntrySummary,
+    mcpServerLabel,
+    simplifyShellCommand,
+    toolWorkEntryHeading,
+    workEntryHasExpandableContent,
+    workEntryPanelLabel,
+    workEntryOutputBody,
+    workEntryPreview,
+    workEntryStatusLabel,
+    workEntrySummary,
 } from "../../workLogEntry";
+import { APP_STAGE_LABEL } from "~/branding";
+import { T3Wordmark } from "../Icons";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
@@ -379,9 +382,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   return (
                     <ReasoningGroupRow
                       key={item.collapseKey}
+                      collapseKey={item.collapseKey}
                       entries={item.entries}
                       isExpanded={expandedWorkEntries[item.collapseKey] ?? false}
+                      areAllToolsVisible={expandedAgentToolLists[item.collapseKey] ?? false}
                       onExpandedChange={(open) => onSetWorkEntryExpanded(item.collapseKey, open)}
+                      onToolListExpandedChange={(open) =>
+                        onSetAgentToolListExpanded(item.collapseKey, open)
+                      }
+                      expandedWorkEntries={expandedWorkEntries}
+                      onSetWorkEntryExpanded={onSetWorkEntryExpanded}
                     />
                   );
                 }
@@ -611,10 +621,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   if (!hasMessages && !isWorking) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground/30">
-          Send a message to start the conversation.
-        </p>
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <div className="flex items-center gap-2">
+          <T3Wordmark className="h-10 w-auto shrink-0 text-foreground/20" />
+          <span className="text-3xl font-medium tracking-tight text-foreground/20">Code</span>
+          <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
+            {APP_STAGE_LABEL}
+          </span>
+        </div>
+        <p className="text-lg text-muted-foreground/30">Let's build</p>
       </div>
     );
   }
@@ -896,6 +911,8 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const heading = toolWorkEntryHeading(workEntry);
   const preview = workEntryPreview(workEntry);
   const isReasoning = isReasoningUpdateWorkEntry(workEntry);
+  const isMcp = workEntry.itemType === "mcp_tool_call";
+  const mcpServer = isMcp ? mcpServerLabel(workEntry) : null;
 
   // For reasoning: show detail as the main text, skip the heading
   const displayHeading = isReasoning && preview ? preview : heading;
@@ -925,6 +942,9 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
               {displayHeading}
             </span>
+            {mcpServer && (
+              <span className="ml-1.5 text-muted-foreground/40">{mcpServer}</span>
+            )}
             {displayPreview && (
               <span className="text-muted-foreground/55"> - {displayPreview}</span>
             )}
@@ -981,10 +1001,12 @@ const WorkEntryPanel = memo(function WorkEntryPanel(props: {
   const { workEntry, className } = props;
   const panelLabel = workEntryPanelLabel(workEntry);
   const commandText = workEntry.command ? simplifyShellCommand(workEntry.command) : null;
+  const inputBody = workEntry.toolInput ?? null;
   const outputBody = workEntryOutputBody(workEntry);
   const statusLabel = workEntryStatusLabel(workEntry);
   const statusToneClass =
     workEntry.tone === "error" ? "text-rose-300/75 dark:text-rose-300/80" : "text-foreground/52";
+  const isMcp = workEntry.itemType === "mcp_tool_call";
 
   return (
     <div
@@ -1019,9 +1041,50 @@ const WorkEntryPanel = memo(function WorkEntryPanel(props: {
           </pre>
         </div>
       )}
+      {inputBody && (
+        <div className="group/section relative">
+          <HoverCopyButton text={inputBody} />
+          {isMcp && (
+            <div className="px-4 pt-2">
+              <p
+                className="font-medium text-muted-foreground/48"
+                style={{ fontSize: "calc(var(--app-code-font-size) - 3px)" }}
+              >
+                Input
+              </p>
+            </div>
+          )}
+          <div
+            className="max-h-36 overflow-auto px-4 py-2"
+            style={{
+              maskImage:
+                "linear-gradient(to bottom, transparent, black 0.75rem, black calc(100% - 0.75rem), transparent)",
+              WebkitMaskImage:
+                "linear-gradient(to bottom, transparent, black 0.75rem, black calc(100% - 0.75rem), transparent)",
+            }}
+          >
+            <pre
+              className="whitespace-pre font-mono text-foreground/58"
+              style={{ fontSize: "calc(var(--app-code-font-size) - 2px)" }}
+            >
+              {inputBody}
+            </pre>
+          </div>
+        </div>
+      )}
       {outputBody && (
         <div className="group/section relative">
           <HoverCopyButton text={outputBody} />
+          {(isMcp || inputBody) && (
+            <div className="px-4 pt-1">
+              <p
+                className="font-medium text-muted-foreground/48"
+                style={{ fontSize: "calc(var(--app-code-font-size) - 3px)" }}
+              >
+                Output
+              </p>
+            </div>
+          )}
           <div
             className="max-h-48 overflow-auto px-4 py-3"
             style={{
@@ -1061,7 +1124,6 @@ const WorkEntryRow = memo(function WorkEntryRow(props: {
     return <SimpleWorkEntryRow workEntry={workEntry} />;
   }
 
-  // Reasoning updates render as compact simple rows (no expandable panel)
   if (isReasoningUpdateWorkEntry(workEntry)) {
     return <SimpleWorkEntryRow workEntry={workEntry} />;
   }
@@ -1072,6 +1134,9 @@ const WorkEntryRow = memo(function WorkEntryRow(props: {
   }
 
   const summary = workEntrySummary(workEntry);
+  const isMcp = workEntry.itemType === "mcp_tool_call";
+  const isDynamicTool = workEntry.itemType === "dynamic_tool_call";
+  const EntryIcon = workEntryIcon(workEntry);
 
   return (
     <Collapsible
@@ -1082,15 +1147,20 @@ const WorkEntryRow = memo(function WorkEntryRow(props: {
     >
       <CollapsibleTrigger
         data-work-entry-toggle={workEntry.id}
-        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground/82"
+        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground"
         style={{ fontSize: "var(--app-ui-font-size)" }}
         title={summary}
       >
-        <span className="min-w-0 flex-1 truncate text-foreground/68">{summary}</span>
+        {(isMcp || isDynamicTool) && (
+          <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground">
+            <EntryIcon className="size-3" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-muted-foreground/70 transition-colors duration-150 group-hover:text-foreground">{summary}</span>
         <ChevronDownIcon
           aria-hidden="true"
           className={cn(
-            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200",
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200 group-hover:text-white",
             isExpanded ? "rotate-180" : "rotate-0",
           )}
         />
@@ -1106,7 +1176,11 @@ function inlineAgentToolHeading(workEntry: TimelineWorkEntry): string {
   if (isReasoningUpdateWorkEntry(workEntry)) {
     const lastToolName = workEntry.lastToolName?.trim();
     if (lastToolName) {
-      return toolWorkEntryHeading({ toolTitle: lastToolName, label: lastToolName });
+      return toolWorkEntryHeading({
+        ...workEntry,
+        toolTitle: lastToolName,
+        label: lastToolName,
+      });
     }
   }
   return toolWorkEntryHeading(workEntry);
@@ -1138,26 +1212,22 @@ const InlineAgentToolRow = memo(function InlineAgentToolRow(props: {
   const ToolIcon = isReasoningUpdateWorkEntry(workEntry)
     ? reasoningToolIcon(workEntry.lastToolName)
     : workEntryIcon(workEntry);
-  const titleText = [heading, summary].filter(Boolean).join(" ");
+  const displayText = summary ? `${heading} - ${summary}` : heading;
 
   if (!hasExpandableContent) {
     return (
-      <div
-        className="rounded-xl border border-border/35 bg-background/10"
-        data-inline-agent-tool-row={workEntry.id}
-      >
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <ChevronDownIcon className="-rotate-90 size-3 shrink-0 text-muted-foreground/28" />
-          <div
-            className="min-w-0 flex-1 truncate font-mono text-[12px] leading-6"
-            title={titleText || heading}
-          >
-            <span className="font-semibold text-foreground/88">{heading}</span>
-            {summary && <span className="ml-2 text-muted-foreground/60">{summary}</span>}
-          </div>
-          <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/38">
+      <div className="rounded-lg px-1 py-0.5" data-inline-agent-tool-row={workEntry.id}>
+        <div className="flex items-center gap-2 py-0.5">
+          <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50">
             <ToolIcon className="size-3" />
           </span>
+          <p
+            className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/60"
+            title={displayText}
+          >
+            <span className="text-foreground/70">{heading}</span>
+            {summary && <span className="text-muted-foreground/45"> - {summary}</span>}
+          </p>
         </div>
       </div>
     );
@@ -1167,38 +1237,33 @@ const InlineAgentToolRow = memo(function InlineAgentToolRow(props: {
     <Collapsible
       open={isExpanded}
       onOpenChange={onExpandedChange}
-      className="overflow-hidden rounded-xl border border-border/35 bg-background/10"
+      className="rounded-lg px-1 py-0.5"
       data-inline-agent-tool-row={workEntry.id}
     >
       <CollapsibleTrigger
         data-inline-agent-tool-toggle={workEntry.id}
-        className="group flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors duration-150 hover:bg-muted/20"
-        title={titleText || heading}
+        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground"
+        title={displayText}
       >
-        <ChevronDownIcon
-          className={cn(
-            "size-3 shrink-0 text-muted-foreground/28 transition-transform duration-200",
-            isExpanded ? "rotate-0" : "-rotate-90",
-          )}
-        />
-        <div className="min-w-0 flex-1 truncate font-mono text-[12px] leading-6">
-          <span className="font-semibold text-foreground/88">{heading}</span>
-          {summary && <span className="ml-2 text-muted-foreground/60">{summary}</span>}
-        </div>
-        <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/38">
+        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground">
           <ToolIcon className="size-3" />
         </span>
+        <span
+          className="min-w-0 flex-1 truncate text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground"
+          style={{ fontSize: "var(--app-ui-font-size)" }}
+        >
+          {displayText}
+        </span>
         <ChevronDownIcon
+          aria-hidden="true"
           className={cn(
-            "size-3 shrink-0 text-muted-foreground/25 transition-transform duration-200",
-            isExpanded ? "rotate-180" : "-rotate-90",
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200",
+            isExpanded ? "rotate-180" : "rotate-0",
           )}
         />
       </CollapsibleTrigger>
       <CollapsibleContent data-inline-agent-tool-panel={workEntry.id}>
-        <div className="border-t border-border/30 bg-muted/18 px-3 pb-3 pt-2">
-          <WorkEntryPanel workEntry={workEntry} />
-        </div>
+        <WorkEntryPanel workEntry={workEntry} className="mt-1 ml-6" />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -1311,7 +1376,7 @@ const InlineAgentGroupRow = memo(function InlineAgentGroupRow(props: {
             </div>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-0">
             {visibleTools.length > 0 ? (
               visibleTools.map((toolEntry) => (
                 <InlineAgentToolRow
@@ -1322,7 +1387,7 @@ const InlineAgentGroupRow = memo(function InlineAgentGroupRow(props: {
                 />
               ))
             ) : (
-              <div className="rounded-xl border border-dashed border-border/45 px-3 py-2 text-[12px] text-muted-foreground/60">
+              <div className="rounded-lg px-3 py-2 text-[12px] text-muted-foreground/50">
                 Tool calls will appear here as the sub-agent works.
               </div>
             )}
@@ -1371,15 +1436,35 @@ function reasoningToolIcon(lastToolName: string | undefined): LucideIcon {
   return ZapIcon;
 }
 
+const REASONING_GROUP_VISIBLE_LIMIT = 5;
+
 const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
+  collapseKey: string;
   entries: TimelineWorkEntry[];
   isExpanded: boolean;
+  areAllToolsVisible: boolean;
   onExpandedChange: (open: boolean) => void;
+  onToolListExpandedChange: (open: boolean) => void;
+  expandedWorkEntries: Record<string, boolean>;
+  onSetWorkEntryExpanded: (workEntryId: string, open: boolean) => void;
 }) {
-  const { entries, isExpanded, onExpandedChange } = props;
+  const {
+    entries,
+    isExpanded,
+    areAllToolsVisible,
+    onExpandedChange,
+    onToolListExpandedChange,
+    expandedWorkEntries,
+    onSetWorkEntryExpanded,
+  } = props;
   const lastEntry = entries[entries.length - 1]!;
   const lastDetail = lastEntry.detail?.trim() || "Thinking...";
   const stepCount = entries.length;
+  const LastToolIcon = reasoningToolIcon(lastEntry.lastToolName);
+  const visibleEntries = areAllToolsVisible
+    ? entries
+    : entries.slice(0, REASONING_GROUP_VISIBLE_LIMIT);
+  const hiddenCount = Math.max(0, stepCount - visibleEntries.length);
 
   return (
     <Collapsible
@@ -1388,16 +1473,16 @@ const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
       className="rounded-lg px-1 py-0.5"
     >
       <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground/72">
-        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50">
-          <BrainIcon className="size-3" />
+        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/70">
+          <LastToolIcon className="size-4" />
         </span>
         <span
-          className="min-w-0 flex-1 truncate text-muted-foreground/55"
+          className="min-w-0 flex-1 truncate text-muted-foreground/70"
           style={{ fontSize: "var(--app-ui-font-size)" }}
         >
           {lastDetail}
         </span>
-        <span className="shrink-0 rounded-full bg-muted/80 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/45">
+        <span className="shrink-0 rounded-full bg-muted/80 px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground/45">
           {stepCount}
         </span>
         <ChevronDownIcon
@@ -1409,26 +1494,95 @@ const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-1 space-y-px rounded-xl border border-border/30 bg-muted/20 py-1">
-          {entries.map((entry) => {
-            const detail = entry.detail?.trim() || "Thinking...";
-            const ToolIcon = reasoningToolIcon(entry.lastToolName);
-            return (
-              <div key={`reasoning-item:${entry.id}`} className="flex items-center gap-2 px-3 py-1">
-                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/35">
-                  <ToolIcon className="size-2.5" />
-                </span>
-                <span
-                  className="min-w-0 flex-1 truncate text-muted-foreground/50"
-                  style={{ fontSize: "calc(var(--app-ui-font-size) - 1px)" }}
-                  title={detail}
-                >
-                  {detail}
-                </span>
-              </div>
-            );
-          })}
+        <div className="mt-1 space-y-0 py-1">
+          {visibleEntries.map((entry) => (
+            <ReasoningEntryRow
+              key={`reasoning-item:${entry.id}`}
+              workEntry={entry}
+              isExpanded={expandedWorkEntries[entry.id] ?? false}
+              onExpandedChange={(open) => onSetWorkEntryExpanded(entry.id, open)}
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <div className="flex justify-start px-1 pt-1">
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToolListExpandedChange(!areAllToolsVisible);
+                }}
+              >
+                {areAllToolsVisible ? "Show less" : `Show ${hiddenCount} more`}
+              </Button>
+            </div>
+          )}
         </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+});
+
+/** A single entry inside a reasoning group — expandable if it has output. */
+const ReasoningEntryRow = memo(function ReasoningEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  isExpanded: boolean;
+  onExpandedChange: (open: boolean) => void;
+}) {
+  const { workEntry, isExpanded, onExpandedChange } = props;
+  const detail = workEntry.detail?.trim() || "Thinking...";
+  const ToolIcon = reasoningToolIcon(workEntry.lastToolName);
+  const hasExpandable = workEntryHasExpandableContent(workEntry);
+
+  if (!hasExpandable) {
+    return (
+      <div className="rounded-lg px-1 py-0.5">
+        <div className="flex items-center gap-2 py-0.5">
+          <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/60">
+            <ToolIcon className="size-4" />
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate text-muted-foreground/70"
+            style={{ fontSize: "calc(var(--app-ui-font-size) - 1px)" }}
+            title={detail}
+          >
+            {detail}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Collapsible
+      open={isExpanded}
+      onOpenChange={onExpandedChange}
+      className="rounded-lg px-1 py-0.5"
+    >
+      <CollapsibleTrigger
+        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground"
+        title={detail}
+      >
+        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/40 transition-colors duration-150 group-hover:text-foreground">
+          <ToolIcon className="size-3" />
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground"
+          style={{ fontSize: "calc(var(--app-ui-font-size) - 1px)" }}
+        >
+          {detail}
+        </span>
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200",
+            isExpanded ? "rotate-180" : "rotate-0",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <WorkEntryPanel workEntry={workEntry} className="mt-1 ml-6" />
       </CollapsibleContent>
     </Collapsible>
   );

@@ -1,59 +1,59 @@
 import {
-  ArchiveIcon,
-  ArrowUpDownIcon,
-  EllipsisIcon,
-  FolderClosed,
-  FolderOpenIcon,
-  GitPullRequestIcon,
-  PlusIcon,
-  SettingsIcon,
-  SquarePenIcon,
-  TerminalIcon,
-  TriangleAlertIcon,
+    ArchiveIcon,
+    ArrowUpDownIcon,
+    EllipsisIcon,
+    FolderClosed,
+    FolderOpenIcon,
+    GitPullRequestIcon,
+    PlusIcon,
+    SettingsIcon,
+    SquarePenIcon,
+    TerminalIcon,
+    TriangleAlertIcon,
 } from "lucide-react";
 import { autoAnimate } from "@formkit/auto-animate";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type KeyboardEvent,
-  type MouseEvent,
-  type MutableRefObject,
-  type PointerEvent,
-  type ReactNode,
-  type SetStateAction,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type Dispatch,
+    type KeyboardEvent,
+    type MouseEvent,
+    type MutableRefObject,
+    type PointerEvent,
+    type ReactNode,
+    type SetStateAction,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  DndContext,
-  type DragCancelEvent,
-  type CollisionDetection,
-  PointerSensor,
-  type DragStartEvent,
-  closestCorners,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
+    DndContext,
+    type DragCancelEvent,
+    type CollisionDetection,
+    PointerSensor,
+    type DragStartEvent,
+    closestCorners,
+    pointerWithin,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  type DesktopUpdateState,
-  ProjectId,
-  ThreadId,
-  type GitStatusResult,
+    DEFAULT_MODEL_BY_PROVIDER,
+    type DesktopUpdateState,
+    ProjectId,
+    ThreadId,
+    type GitStatusResult,
 } from "@t3tools/contracts";
 import { useQueries } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
-  type SidebarProjectSortOrder,
-  type SidebarThreadSortOrder,
+    type SidebarProjectSortOrder,
+    type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
@@ -63,12 +63,12 @@ import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
-  resolveShortcutCommand,
-  shortcutLabelForCommand,
-  shouldShowThreadJumpHints,
-  threadJumpCommandForIndex,
-  threadJumpIndexFromCommand,
-  threadTraversalDirectionFromCommand,
+    resolveShortcutCommand,
+    shortcutLabelForCommand,
+    shouldShowThreadJumpHints,
+    threadJumpCommandForIndex,
+    threadJumpIndexFromCommand,
+    threadTraversalDirectionFromCommand,
 } from "../keybindings";
 import { gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { readNativeApi } from "../nativeApi";
@@ -80,50 +80,50 @@ import { toastManager } from "./ui/toast";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import {
-  getArm64IntelBuildWarningDescription,
-  getDesktopUpdateActionError,
-  getDesktopUpdateInstallConfirmationMessage,
-  isDesktopUpdateButtonDisabled,
-  resolveDesktopUpdateButtonAction,
-  shouldShowArm64IntelBuildWarning,
-  shouldToastDesktopUpdateActionResult,
+    getArm64IntelBuildWarningDescription,
+    getDesktopUpdateActionError,
+    getDesktopUpdateInstallConfirmationMessage,
+    isDesktopUpdateButtonDisabled,
+    resolveDesktopUpdateButtonAction,
+    shouldShowArm64IntelBuildWarning,
+    shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarHeader,
-  SidebarMenuAction,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
-  SidebarSeparator,
-  SidebarTrigger,
+    SidebarContent,
+    SidebarFooter,
+    SidebarGroup,
+    SidebarHeader,
+    SidebarMenuAction,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
+    SidebarSeparator,
+    SidebarTrigger,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
-  getVisibleSidebarThreadIds,
-  getVisibleThreadsForProject,
-  resolveAdjacentThreadId,
-  isContextMenuPointerDown,
-  resolveProjectStatusIndicator,
-  resolveSidebarNewThreadSeedContext,
-  resolveSidebarNewThreadEnvMode,
-  resolveThreadRowClassName,
-  resolveThreadStatusPill,
-  orderItemsByPreferredIds,
-  shouldClearThreadSelectionOnMouseDown,
-  sortProjectsForSidebar,
-  sortThreadsForSidebar,
-  useThreadJumpHintVisibility,
+    getVisibleSidebarThreadIds,
+    getVisibleThreadsForProject,
+    resolveAdjacentThreadId,
+    isContextMenuPointerDown,
+    resolveProjectStatusIndicator,
+    resolveSidebarNewThreadSeedContext,
+    resolveSidebarNewThreadEnvMode,
+    resolveThreadRowClassName,
+    resolveThreadStatusPill,
+    orderItemsByPreferredIds,
+    shouldClearThreadSelectionOnMouseDown,
+    sortProjectsForSidebar,
+    sortThreadsForSidebar,
+    useThreadJumpHintVisibility,
 } from "./Sidebar.logic";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
@@ -131,6 +131,7 @@ import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project } from "../types";
+import { ClaudeAI, OpenAI, T3Wordmark } from "./Icons";
 import { CustomSpinner } from "./ui/custom-spinner";
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
@@ -367,7 +368,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
           }
         }}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        <div title={thread.title} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {prStatus && (
             <Tooltip>
               <TooltipTrigger
@@ -387,7 +388,13 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
               <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
             </Tooltip>
           )}
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {threadStatus ? (
+            <ThreadStatusLabel status={threadStatus} />
+          ) : thread.provider === "claudeAgent" ? (
+            <ClaudeAI className="size-3.5 shrink-0 text-[#d97757]" />
+          ) : (
+            <OpenAI className="size-3.5 shrink-0 text-muted-foreground/70" />
+          )}
           {props.renamingThreadId === thread.id ? (
             <input
               ref={(element) => {
@@ -420,7 +427,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
-            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{thread.title}</span>
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -543,20 +550,8 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
   );
 }
 
-function T3Wordmark() {
-  return (
-    <svg
-      aria-label="T3"
-      className="h-2.5 w-auto shrink-0 text-foreground"
-      viewBox="15.5309 37 94.3941 56.96"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+function SidebarT3Wordmark() {
+  return <T3Wordmark className="h-2.5 w-auto shrink-0 text-foreground" />;
 }
 
 type SortableProjectHandleProps = Pick<
@@ -1941,7 +1936,7 @@ export default function Sidebar() {
               className="ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2"
               to="/"
             >
-              <T3Wordmark />
+              <SidebarT3Wordmark />
               <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
                 Code
               </span>
