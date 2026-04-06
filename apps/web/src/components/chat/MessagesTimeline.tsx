@@ -1,4 +1,6 @@
-import { type MessageId, type TurnId } from "@t3tools/contracts";
+import { type MessageId, ThreadId, type TurnId } from "@t3tools/contracts";
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "@tanstack/react-router";
 import {
     memo,
     useCallback,
@@ -43,6 +45,8 @@ import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImage
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
+import { VscodeEntryIcon } from "./VscodeEntryIcon";
+import { basenameOfPath } from "../../vscode-icons";
 import { MessageCopyButton } from "./MessageCopyButton";
 import {
     deriveMessagesTimelineRows,
@@ -59,6 +63,8 @@ import {
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { useTheme } from "~/hooks/useTheme";
+import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import {
     buildInlineTerminalContextText,
@@ -144,6 +150,37 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const [expandedWorkEntries, setExpandedWorkEntries] = useState<Record<string, boolean>>({});
   const [expandedAgentToolLists, setExpandedAgentToolLists] = useState<Record<string, boolean>>({});
+
+  /** Flat lookup of relative file path → accurate diff stats + checkpoint info. */
+  const checkpointFileStatMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { additions: number; deletions: number; checkpointTurnCount: number | undefined }
+    >();
+    for (const summary of turnDiffSummaryByAssistantMessageId.values()) {
+      for (const file of summary.files) {
+        const normalized = file.path.replace(/\\/g, "/");
+        map.set(normalized, {
+          additions: file.additions ?? 0,
+          deletions: file.deletions ?? 0,
+          checkpointTurnCount: summary.checkpointTurnCount,
+        });
+        // Also index by basename-suffix so absolute-path lookups hit directly
+        const lastSlash = normalized.lastIndexOf("/");
+        if (lastSlash >= 0) {
+          const suffix = normalized.slice(lastSlash);
+          if (!map.has(suffix)) {
+            map.set(suffix, {
+              additions: file.additions ?? 0,
+              deletions: file.deletions ?? 0,
+              checkpointTurnCount: summary.checkpointTurnCount,
+            });
+          }
+        }
+      }
+    }
+    return map;
+  }, [turnDiffSummaryByAssistantMessageId]);
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -376,7 +413,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           const renderItems = groupWorkEntriesForTimeline(groupedEntries);
 
           return (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {renderItems.map((item) => {
                 if (item.kind === "reasoning-group") {
                   return (
@@ -392,6 +429,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       }
                       expandedWorkEntries={expandedWorkEntries}
                       onSetWorkEntryExpanded={onSetWorkEntryExpanded}
+                      markdownCwd={markdownCwd}
+                      checkpointFileStatMap={checkpointFileStatMap}
                     />
                   );
                 }
@@ -410,6 +449,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       }
                       expandedWorkEntries={expandedWorkEntries}
                       onSetWorkEntryExpanded={onSetWorkEntryExpanded}
+                      checkpointFileStatMap={checkpointFileStatMap}
                     />
                   );
                 }
@@ -419,6 +459,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     workEntry={item.entry}
                     isExpanded={expandedWorkEntries[item.entry.id] ?? false}
                     onExpandedChange={(open) => onSetWorkEntryExpanded(item.entry.id, open)}
+                    checkpointFileStatMap={checkpointFileStatMap}
+                    markdownCwd={markdownCwd}
                   />
                 );
               })}
@@ -539,8 +581,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true;
                   return (
                     <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs uppercase text-muted-foreground/65">
                           <span>Changed files ({changedFileCountLabel})</span>
                           {hasNonZeroStat(summaryStat) && (
                             <>
@@ -942,9 +984,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
               {displayHeading}
             </span>
-            {mcpServer && (
-              <span className="ml-1.5 text-muted-foreground/40">{mcpServer}</span>
-            )}
+            {mcpServer && <span className="ml-1.5 text-muted-foreground/40">{mcpServer}</span>}
             {displayPreview && (
               <span className="text-muted-foreground/55"> - {displayPreview}</span>
             )}
@@ -991,6 +1031,298 @@ const HoverCopyButton = memo(function HoverCopyButton({ text }: { text: string }
         <CopyIcon className="size-3.5 text-muted-foreground/70" />
       )}
     </button>
+  );
+});
+
+function isFileChangeEntry(
+  workEntry: Pick<TimelineWorkEntry, "itemType" | "requestKind">,
+): boolean {
+  return workEntry.itemType === "file_change" || workEntry.requestKind === "file-change";
+}
+
+interface ParsedFileChangeInput {
+  filePath: string;
+  kind: "write" | "edit" | "other";
+  content?: string;
+  oldString?: string;
+  newString?: string;
+}
+
+function parseFileChangeInput(toolInput: string | null): ParsedFileChangeInput | null {
+  if (!toolInput) return null;
+  try {
+    const parsed = JSON.parse(toolInput) as Record<string, unknown>;
+    if (typeof parsed !== "object" || !parsed) return null;
+    const filePath = (parsed.file_path ?? parsed.filePath) as string | undefined;
+    if (typeof filePath !== "string") return null;
+
+    if (typeof parsed.old_string === "string" && typeof parsed.new_string === "string") {
+      return {
+        filePath,
+        kind: "edit",
+        oldString: parsed.old_string,
+        newString: parsed.new_string,
+      };
+    }
+    if (typeof parsed.content === "string") {
+      return { filePath, kind: "write", content: parsed.content };
+    }
+    return { filePath, kind: "other" };
+  } catch {
+    return null;
+  }
+}
+
+function countLines(text: string): number {
+  if (text.length === 0) return 0;
+  let count = 1;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) count++;
+  }
+  return count;
+}
+
+function computeFileChangeStat(parsed: ParsedFileChangeInput): {
+  additions: number;
+  deletions: number;
+} {
+  if (parsed.kind === "edit") {
+    return {
+      additions: countLines(parsed.newString ?? ""),
+      deletions: countLines(parsed.oldString ?? ""),
+    };
+  }
+  if (parsed.kind === "write") {
+    return { additions: countLines(parsed.content ?? ""), deletions: 0 };
+  }
+  return { additions: 0, deletions: 0 };
+}
+
+/** Look up the checkpoint file entry by matching the tool input path against relative git paths. */
+function lookupCheckpointFileStat(
+  filePath: string,
+  checkpointFileStatMap: FileStatMap,
+): FileStatEntry | null {
+  const normalized = filePath.replace(/\\/g, "/");
+
+  const direct = checkpointFileStatMap.get(normalized);
+  if (direct) return direct;
+
+  // Tool inputs use absolute paths; try suffix key populated at build time
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash >= 0) {
+    const suffix = normalized.slice(lastSlash);
+    const bySuffix = checkpointFileStatMap.get(suffix);
+    if (bySuffix) return bySuffix;
+  }
+
+  return null;
+}
+
+function resolveFileChangeStat(
+  parsed: ParsedFileChangeInput,
+  checkpointFileStatMap: FileStatMap,
+): { additions: number; deletions: number } {
+  return lookupCheckpointFileStat(parsed.filePath, checkpointFileStatMap) ??
+    computeFileChangeStat(parsed);
+}
+
+/** Extract a single file's unified diff hunk lines from a full patch string. */
+function extractFileDiffLines(fullPatch: string, filePath: string): string[] | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const basename = basenameOfPath(normalized);
+
+  const sections = fullPatch.split(/^(?=diff --git )/m);
+  for (const section of sections) {
+    if (section.length === 0) continue;
+    const firstLine = section.slice(0, section.indexOf("\n"));
+    // Prefer full-path match (handles same-basename files in different dirs)
+    const matchesFull =
+      firstLine.includes(`a/${normalized}`) || firstLine.includes(`b/${normalized}`);
+    const matchesBasename =
+      firstLine.includes(`/${basename}`) || firstLine.includes(` ${basename}`);
+    if (matchesFull || matchesBasename) {
+      // Only keep hunk headers and content lines (skip diff/---/+++ headers)
+      return section
+        .split("\n")
+        .filter(
+          (line) =>
+            !line.startsWith("diff ") &&
+            !line.startsWith("index ") &&
+            !line.startsWith("--- ") &&
+            !line.startsWith("+++ ") &&
+            !line.startsWith("new file") &&
+            !line.startsWith("old mode") &&
+            !line.startsWith("new mode") &&
+            !line.startsWith("deleted file") &&
+            !line.startsWith("similarity") &&
+            !line.startsWith("rename "),
+        );
+    }
+  }
+  return null;
+}
+
+const FileChangeRow = memo(function FileChangeRow(props: {
+  workEntry: TimelineWorkEntry;
+  parsed: ParsedFileChangeInput;
+  isExpanded: boolean;
+  onExpandedChange: (open: boolean) => void;
+  checkpointFileStatMap: FileStatMap;
+}) {
+  const { workEntry, parsed, isExpanded, onExpandedChange, checkpointFileStatMap } = props;
+  const { resolvedTheme } = useTheme();
+  const actionLabel = parsed.kind === "write" ? "Write" : "Edited";
+  const fileName = basenameOfPath(parsed.filePath);
+  const fontSize = "calc(var(--app-code-font-size) - 2px)";
+  const isError = workEntry.tone === "error";
+  const stat = useMemo(
+    () => resolveFileChangeStat(parsed, checkpointFileStatMap),
+    [parsed, checkpointFileStatMap],
+  );
+
+  const checkpointEntry = useMemo(
+    () => lookupCheckpointFileStat(parsed.filePath, checkpointFileStatMap),
+    [parsed.filePath, checkpointFileStatMap],
+  );
+  const routeThreadId = useParams({
+    strict: false,
+    select: (params) =>
+      params.threadId ? ThreadId.makeUnsafe(params.threadId as string) : null,
+  });
+  const turnCount = checkpointEntry?.checkpointTurnCount;
+  const diffQuery = useQuery(
+    checkpointDiffQueryOptions({
+      threadId: routeThreadId,
+      fromTurnCount: typeof turnCount === "number" ? Math.max(0, turnCount - 1) : null,
+      toTurnCount: turnCount ?? null,
+      cacheScope: `file-change-row:turn-${turnCount}`,
+      enabled: isExpanded && typeof turnCount === "number",
+    }),
+  );
+  const diffLines = useMemo(() => {
+    const patch = diffQuery.data?.diff;
+    if (typeof patch !== "string" || patch.length === 0) return null;
+    return extractFileDiffLines(patch, parsed.filePath);
+  }, [diffQuery.data, parsed.filePath]);
+
+  return (
+    <Collapsible
+      open={isExpanded}
+      onOpenChange={onExpandedChange}
+      className="rounded-lg px-1 py-0.5"
+      data-work-entry-id={workEntry.id}
+    >
+      <CollapsibleTrigger
+        data-work-entry-toggle={workEntry.id}
+        className="group flex w-full items-center gap-1.5 rounded-md py-1 pr-1 text-left transition-colors duration-150 hover:text-foreground"
+      >
+        <span
+          className={cn(
+            "shrink-0 text-sm",
+            isError ? "text-rose-400/80" : "text-muted-foreground/55",
+          )}
+        >
+          {actionLabel}
+        </span>
+        <VscodeEntryIcon
+          pathValue={parsed.filePath}
+          kind="file"
+          theme={resolvedTheme as "light" | "dark"}
+          className="size-3.5"
+        />
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-white transition-colors duration-150 group-hover:text-foreground/90"
+          style={{ fontSize }}
+          title={parsed.filePath}
+        >
+          {fileName}
+        </span>
+        {hasNonZeroStat(stat) && (
+          <span className="ml-auto shrink-0 font-mono text-xs tabular-nums">
+            <DiffStatLabel additions={stat.additions} deletions={stat.deletions} />
+          </span>
+        )}
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200 group-hover:text-foreground",
+            isExpanded ? "rotate-180" : "rotate-0",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div
+          className="mt-1 max-h-72 overflow-auto rounded-lg border border-border/30 bg-background/30 font-mono"
+          style={{ fontSize }}
+        >
+          {diffLines ? (
+            diffLines.map((line, i) => {
+              if (line.startsWith("@@")) {
+                return (
+                  <div
+                    key={i}
+                    className="whitespace-pre px-2.5 py-px text-primary/50"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in srgb, var(--background) 94%, var(--primary))",
+                    }}
+                  >
+                    {line}
+                  </div>
+                );
+              }
+              if (line.startsWith("+")) {
+                return (
+                  <div
+                    key={i}
+                    className="whitespace-pre px-2.5 py-px"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in srgb, var(--background) 92%, var(--success))",
+                      color:
+                        "color-mix(in srgb, var(--foreground) 65%, var(--success))",
+                    }}
+                  >
+                    {line}
+                  </div>
+                );
+              }
+              if (line.startsWith("-")) {
+                return (
+                  <div
+                    key={i}
+                    className="whitespace-pre px-2.5 py-px"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in srgb, var(--background) 92%, var(--destructive))",
+                      color:
+                        "color-mix(in srgb, var(--foreground) 65%, var(--destructive))",
+                    }}
+                  >
+                    {line}
+                  </div>
+                );
+              }
+              return (
+                <div key={i} className="whitespace-pre px-2.5 py-px text-foreground/50">
+                  {line}
+                </div>
+              );
+            })
+          ) : diffQuery.isLoading ? (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-muted-foreground/50">
+              <Loader2Icon className="size-3 animate-spin" />
+              Loading diff…
+            </div>
+          ) : (
+            <div className="px-2.5 py-2 text-muted-foreground/50">
+              No diff available.
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 });
 
@@ -1114,23 +1446,58 @@ const WorkEntryPanel = memo(function WorkEntryPanel(props: {
   );
 });
 
+type FileStatEntry = {
+  additions: number;
+  deletions: number;
+  checkpointTurnCount: number | undefined;
+};
+type FileStatMap = ReadonlyMap<string, FileStatEntry>;
+const EMPTY_FILE_STAT_MAP: FileStatMap = new Map();
+
 const WorkEntryRow = memo(function WorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   isExpanded: boolean;
   onExpandedChange: (open: boolean) => void;
+  checkpointFileStatMap?: FileStatMap | undefined;
+  markdownCwd?: string | undefined;
 }) {
-  const { workEntry, isExpanded, onExpandedChange } = props;
-  if (!workEntryHasExpandableContent(workEntry)) {
+  const { workEntry, isExpanded, onExpandedChange, checkpointFileStatMap, markdownCwd } = props;
+  if (
+    !workEntryHasExpandableContent(workEntry) &&
+    !(isReasoningUpdateWorkEntry(workEntry) && workEntry.detail)
+  ) {
     return <SimpleWorkEntryRow workEntry={workEntry} />;
   }
 
   if (isReasoningUpdateWorkEntry(workEntry)) {
-    return <SimpleWorkEntryRow workEntry={workEntry} />;
+    return (
+      <SingleReasoningRow
+        workEntry={workEntry}
+        isExpanded={isExpanded}
+        onExpandedChange={onExpandedChange}
+        markdownCwd={markdownCwd}
+      />
+    );
   }
 
   // Top-level agent entries render via InlineAgentGroupRow or AgentWidget.
   if (workEntry.itemType === "collab_agent_tool_call") {
     return <SimpleWorkEntryRow workEntry={workEntry} />;
+  }
+
+  if (isFileChangeEntry(workEntry)) {
+    const parsed = parseFileChangeInput(workEntry.toolInput ?? null);
+    if (parsed) {
+      return (
+        <FileChangeRow
+          workEntry={workEntry}
+          parsed={parsed}
+          isExpanded={isExpanded}
+          onExpandedChange={onExpandedChange}
+          checkpointFileStatMap={checkpointFileStatMap ?? EMPTY_FILE_STAT_MAP}
+        />
+      );
+    }
   }
 
   const summary = workEntrySummary(workEntry);
@@ -1153,10 +1520,12 @@ const WorkEntryRow = memo(function WorkEntryRow(props: {
       >
         {(isMcp || isDynamicTool) && (
           <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground">
-            <EntryIcon className="size-3" />
+            <EntryIcon className="size-4" />
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate text-muted-foreground/70 transition-colors duration-150 group-hover:text-foreground">{summary}</span>
+        <span className="min-w-0 flex-1 text-sm truncate text-muted-foreground/70 transition-colors duration-150 group-hover:text-foreground">
+          {summary}
+        </span>
         <ChevronDownIcon
           aria-hidden="true"
           className={cn(
@@ -1204,9 +1573,26 @@ const InlineAgentToolRow = memo(function InlineAgentToolRow(props: {
   workEntry: TimelineWorkEntry;
   isExpanded: boolean;
   onExpandedChange: (open: boolean) => void;
+  checkpointFileStatMap?: FileStatMap | undefined;
 }) {
-  const { workEntry, isExpanded, onExpandedChange } = props;
+  const { workEntry, isExpanded, onExpandedChange, checkpointFileStatMap } = props;
   const hasExpandableContent = workEntryHasExpandableContent(workEntry);
+
+  if (isFileChangeEntry(workEntry)) {
+    const parsed = parseFileChangeInput(workEntry.toolInput ?? null);
+    if (parsed) {
+      return (
+        <FileChangeRow
+          workEntry={workEntry}
+          parsed={parsed}
+          isExpanded={isExpanded}
+          onExpandedChange={onExpandedChange}
+          checkpointFileStatMap={checkpointFileStatMap ?? EMPTY_FILE_STAT_MAP}
+        />
+      );
+    }
+  }
+
   const heading = inlineAgentToolHeading(workEntry);
   const summary = inlineAgentToolSummary(workEntry);
   const ToolIcon = isReasoningUpdateWorkEntry(workEntry)
@@ -1281,6 +1667,7 @@ const InlineAgentGroupRow = memo(function InlineAgentGroupRow(props: {
   onToolListExpandedChange: (open: boolean) => void;
   expandedWorkEntries: Record<string, boolean>;
   onSetWorkEntryExpanded: (workEntryId: string, open: boolean) => void;
+  checkpointFileStatMap?: FileStatMap | undefined;
 }) {
   const {
     agentEntry,
@@ -1292,6 +1679,7 @@ const InlineAgentGroupRow = memo(function InlineAgentGroupRow(props: {
     onToolListExpandedChange,
     expandedWorkEntries,
     onSetWorkEntryExpanded,
+    checkpointFileStatMap,
   } = props;
 
   const promptText = agentEntry.subagentPrompt ?? agentEntry.detail ?? "No instructions captured";
@@ -1384,6 +1772,7 @@ const InlineAgentGroupRow = memo(function InlineAgentGroupRow(props: {
                   workEntry={toolEntry}
                   isExpanded={expandedWorkEntries[toolEntry.id] ?? false}
                   onExpandedChange={(open) => onSetWorkEntryExpanded(toolEntry.id, open)}
+                  checkpointFileStatMap={checkpointFileStatMap}
                 />
               ))
             ) : (
@@ -1436,6 +1825,59 @@ function reasoningToolIcon(lastToolName: string | undefined): LucideIcon {
   return ZapIcon;
 }
 
+function formatReasoningDuration(entries: ReadonlyArray<TimelineWorkEntry>): string | null {
+  if (entries.length === 0) return null;
+  const firstCreatedAt = entries[0]!.createdAt;
+  const lastCreatedAt = entries[entries.length - 1]!.createdAt;
+  return formatWorkingTimer(firstCreatedAt, lastCreatedAt);
+}
+
+/** A single reasoning entry rendered as a collapsible "Thought for Xs" row. */
+const SingleReasoningRow = memo(function SingleReasoningRow(props: {
+  workEntry: TimelineWorkEntry;
+  isExpanded: boolean;
+  onExpandedChange: (open: boolean) => void;
+  markdownCwd?: string | undefined;
+}) {
+  const { workEntry, isExpanded, onExpandedChange, markdownCwd } = props;
+  const detail = workEntry.detail?.trim() || "";
+  const Icon = BrainIcon;
+
+  return (
+    <Collapsible
+      open={isExpanded}
+      onOpenChange={onExpandedChange}
+      className="rounded-lg px-1 py-0.5"
+    >
+      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground">
+        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground">
+          <Icon className="size-3.5" />
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate text-muted-foreground/60 transition-colors duration-150 group-hover:text-foreground"
+          style={{ fontSize: "var(--app-ui-font-size)" }}
+        >
+          Thought
+        </span>
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200 group-hover:text-foreground",
+            isExpanded ? "rotate-180" : "rotate-0",
+          )}
+        />
+      </CollapsibleTrigger>
+      {detail && (
+        <CollapsibleContent>
+          <div className="mt-1 ml-6 max-h-72 overflow-auto rounded-lg border border-border/30 bg-background/30 px-3 py-2">
+            <ChatMarkdown text={detail} cwd={markdownCwd} isStreaming={false} />
+          </div>
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  );
+});
+
 const REASONING_GROUP_VISIBLE_LIMIT = 5;
 
 const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
@@ -1447,6 +1889,8 @@ const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
   onToolListExpandedChange: (open: boolean) => void;
   expandedWorkEntries: Record<string, boolean>;
   onSetWorkEntryExpanded: (workEntryId: string, open: boolean) => void;
+  markdownCwd?: string | undefined;
+  checkpointFileStatMap?: FileStatMap | undefined;
 }) {
   const {
     entries,
@@ -1456,15 +1900,32 @@ const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
     onToolListExpandedChange,
     expandedWorkEntries,
     onSetWorkEntryExpanded,
+    markdownCwd,
+    checkpointFileStatMap,
   } = props;
-  const lastEntry = entries[entries.length - 1]!;
-  const lastDetail = lastEntry.detail?.trim() || "Thinking...";
-  const stepCount = entries.length;
-  const LastToolIcon = reasoningToolIcon(lastEntry.lastToolName);
+  const duration = formatReasoningDuration(entries);
+  const durationLabel = duration ? `Thought for ${duration}` : "Thought";
+
+  // Separate pure reasoning text from tool-like entries
+  const { reasoningText, hasToolEntries } = useMemo(() => {
+    const textParts: string[] = [];
+    let tools = false;
+    for (const e of entries) {
+      if (e.lastToolName) {
+        tools = true;
+      } else {
+        const text = e.detail?.trim();
+        if (text) textParts.push(text);
+      }
+    }
+    return { reasoningText: textParts.join("\n\n"), hasToolEntries: tools };
+  }, [entries]);
+
   const visibleEntries = areAllToolsVisible
     ? entries
     : entries.slice(0, REASONING_GROUP_VISIBLE_LIMIT);
-  const hiddenCount = Math.max(0, stepCount - visibleEntries.length);
+  const canToggleToolList = entries.length > REASONING_GROUP_VISIBLE_LIMIT;
+  const hasContent = reasoningText.length > 0 || hasToolEntries;
 
   return (
     <Collapsible
@@ -1472,118 +1933,67 @@ const ReasoningGroupRow = memo(function ReasoningGroupRow(props: {
       onOpenChange={onExpandedChange}
       className="rounded-lg px-1 py-0.5"
     >
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground/72">
-        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/70">
-          <LastToolIcon className="size-4" />
+      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground">
+        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground">
+          <BrainIcon className="size-4" />
         </span>
         <span
-          className="min-w-0 flex-1 truncate text-muted-foreground/70"
+          className="min-w-0 flex-1 truncate text-sm text-muted-foreground/70 transition-colors duration-150 group-hover:text-foreground"
           style={{ fontSize: "var(--app-ui-font-size)" }}
         >
-          {lastDetail}
-        </span>
-        <span className="shrink-0 rounded-full bg-muted/80 px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground/45">
-          {stepCount}
+          {durationLabel}
         </span>
         <ChevronDownIcon
           aria-hidden="true"
           className={cn(
-            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200",
+            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200 group-hover:text-foreground",
             isExpanded ? "rotate-180" : "rotate-0",
           )}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-1 space-y-0 py-1">
-          {visibleEntries.map((entry) => (
-            <ReasoningEntryRow
-              key={`reasoning-item:${entry.id}`}
-              workEntry={entry}
-              isExpanded={expandedWorkEntries[entry.id] ?? false}
-              onExpandedChange={(open) => onSetWorkEntryExpanded(entry.id, open)}
-            />
-          ))}
-          {hiddenCount > 0 && (
-            <div className="flex justify-start px-1 pt-1">
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onToolListExpandedChange(!areAllToolsVisible);
-                }}
-              >
-                {areAllToolsVisible ? "Show less" : `Show ${hiddenCount} more`}
-              </Button>
+      {hasContent && (
+        <CollapsibleContent>
+          {reasoningText.length > 0 && (
+            <div className="mt-1 ml-6 max-h-72 overflow-auto rounded-lg border border-border/30 bg-background/30 px-3 py-2">
+              <ChatMarkdown text={reasoningText} cwd={markdownCwd} isStreaming={false} />
             </div>
           )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-});
-
-/** A single entry inside a reasoning group — expandable if it has output. */
-const ReasoningEntryRow = memo(function ReasoningEntryRow(props: {
-  workEntry: TimelineWorkEntry;
-  isExpanded: boolean;
-  onExpandedChange: (open: boolean) => void;
-}) {
-  const { workEntry, isExpanded, onExpandedChange } = props;
-  const detail = workEntry.detail?.trim() || "Thinking...";
-  const ToolIcon = reasoningToolIcon(workEntry.lastToolName);
-  const hasExpandable = workEntryHasExpandableContent(workEntry);
-
-  if (!hasExpandable) {
-    return (
-      <div className="rounded-lg px-1 py-0.5">
-        <div className="flex items-center gap-2 py-0.5">
-          <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/60">
-            <ToolIcon className="size-4" />
-          </span>
-          <span
-            className="min-w-0 flex-1 truncate text-muted-foreground/70"
-            style={{ fontSize: "calc(var(--app-ui-font-size) - 1px)" }}
-            title={detail}
-          >
-            {detail}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <Collapsible
-      open={isExpanded}
-      onOpenChange={onExpandedChange}
-      className="rounded-lg px-1 py-0.5"
-    >
-      <CollapsibleTrigger
-        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left transition-colors duration-150 hover:text-foreground"
-        title={detail}
-      >
-        <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/40 transition-colors duration-150 group-hover:text-foreground">
-          <ToolIcon className="size-3" />
-        </span>
-        <span
-          className="min-w-0 flex-1 truncate text-muted-foreground/50 transition-colors duration-150 group-hover:text-foreground"
-          style={{ fontSize: "calc(var(--app-ui-font-size) - 1px)" }}
-        >
-          {detail}
-        </span>
-        <ChevronDownIcon
-          aria-hidden="true"
-          className={cn(
-            "size-3 shrink-0 text-muted-foreground/42 transition-transform duration-200",
-            isExpanded ? "rotate-180" : "rotate-0",
+          {hasToolEntries && (
+            <>
+              <div className="mt-1 max-h-72 space-y-0 overflow-auto py-1">
+                {visibleEntries
+                  .filter((e) => e.lastToolName)
+                  .map((entry) => (
+                    <InlineAgentToolRow
+                      key={`reasoning-tool:${entry.id}`}
+                      workEntry={entry}
+                      isExpanded={expandedWorkEntries[entry.id] ?? false}
+                      onExpandedChange={(open) => onSetWorkEntryExpanded(entry.id, open)}
+                      checkpointFileStatMap={checkpointFileStatMap}
+                    />
+                  ))}
+              </div>
+              {canToggleToolList && (
+                <div className="flex justify-start px-1 pt-1">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToolListExpandedChange(!areAllToolsVisible);
+                    }}
+                  >
+                    {areAllToolsVisible
+                      ? "Show less"
+                      : `Show ${entries.length - REASONING_GROUP_VISIBLE_LIMIT} more`}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <WorkEntryPanel workEntry={workEntry} className="mt-1 ml-6" />
-      </CollapsibleContent>
+        </CollapsibleContent>
+      )}
     </Collapsible>
   );
 });

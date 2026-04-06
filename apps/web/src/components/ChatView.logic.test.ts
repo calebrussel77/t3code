@@ -363,7 +363,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         localDispatch,
         phase: "ready",
         latestTurn: previousLatestTurn,
-        session: previousSession,
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
@@ -405,10 +404,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           startedAt: "2026-03-29T00:01:01.000Z",
           completedAt: "2026-03-29T00:01:30.000Z",
         },
-        session: {
-          ...previousSession,
-          updatedAt: "2026-03-29T00:01:30.000Z",
-        },
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
@@ -416,7 +411,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(true);
   });
 
-  it("clears local dispatch when the session changes without an observed running phase", () => {
+  it("does not clear local dispatch when only session changes without an observed running phase", () => {
     const localDispatch = createLocalDispatchSnapshot({
       id: ThreadId.makeUnsafe("thread-1"),
       codexThreadId: null,
@@ -439,19 +434,18 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       activities: [],
     });
 
+    // Session-only changes should NOT clear local dispatch — this prevents
+    // the "Working for..." indicator from flickering when intermediate session
+    // states arrive before orchestrationStatus transitions to "running".
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
         phase: "ready",
         latestTurn: previousLatestTurn,
-        session: {
-          ...previousSession,
-          updatedAt: "2026-03-29T00:00:11.000Z",
-        },
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

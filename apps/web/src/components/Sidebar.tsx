@@ -1,74 +1,74 @@
 import {
-    ArchiveIcon,
-    ArrowUpDownIcon,
-    EllipsisIcon,
-    FolderClosed,
-    FolderOpenIcon,
-    GitPullRequestIcon,
-    PlusIcon,
-    SettingsIcon,
-    SquarePenIcon,
-    TerminalIcon,
-    TriangleAlertIcon,
+  ArchiveIcon,
+  ArrowUpDownIcon,
+  EllipsisIcon,
+  FolderClosed,
+  FolderOpenIcon,
+  GitPullRequestIcon,
+  PlusIcon,
+  SettingsIcon,
+  SquarePenIcon,
+  TerminalIcon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import { autoAnimate } from "@formkit/auto-animate";
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type Dispatch,
-    type KeyboardEvent,
-    type MouseEvent,
-    type MutableRefObject,
-    type PointerEvent,
-    type ReactNode,
-    type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type KeyboardEvent,
+  type MouseEvent,
+  type MutableRefObject,
+  type PointerEvent,
+  type ReactNode,
+  type SetStateAction,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-    DndContext,
-    type DragCancelEvent,
-    type CollisionDetection,
-    PointerSensor,
-    type DragStartEvent,
-    closestCorners,
-    pointerWithin,
-    useSensor,
-    useSensors,
-    type DragEndEvent,
+  DndContext,
+  type DragCancelEvent,
+  type CollisionDetection,
+  PointerSensor,
+  type DragStartEvent,
+  closestCorners,
+  pointerWithin,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
-    DEFAULT_MODEL_BY_PROVIDER,
-    type DesktopUpdateState,
-    ProjectId,
-    ThreadId,
-    type GitStatusResult,
+  DEFAULT_MODEL_BY_PROVIDER,
+  type DesktopUpdateState,
+  ProjectId,
+  ThreadId,
+  type GitStatusResult,
 } from "@t3tools/contracts";
 import { useQueries } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
-    type SidebarProjectSortOrder,
-    type SidebarThreadSortOrder,
+  type SidebarProjectSortOrder,
+  type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
-    resolveShortcutCommand,
-    shortcutLabelForCommand,
-    shouldShowThreadJumpHints,
-    threadJumpCommandForIndex,
-    threadJumpIndexFromCommand,
-    threadTraversalDirectionFromCommand,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+  shouldShowThreadJumpHints,
+  threadJumpCommandForIndex,
+  threadJumpIndexFromCommand,
+  threadTraversalDirectionFromCommand,
 } from "../keybindings";
 import { gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { readNativeApi } from "../nativeApi";
@@ -80,50 +80,50 @@ import { toastManager } from "./ui/toast";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import {
-    getArm64IntelBuildWarningDescription,
-    getDesktopUpdateActionError,
-    getDesktopUpdateInstallConfirmationMessage,
-    isDesktopUpdateButtonDisabled,
-    resolveDesktopUpdateButtonAction,
-    shouldShowArm64IntelBuildWarning,
-    shouldToastDesktopUpdateActionResult,
+  getArm64IntelBuildWarningDescription,
+  getDesktopUpdateActionError,
+  getDesktopUpdateInstallConfirmationMessage,
+  isDesktopUpdateButtonDisabled,
+  resolveDesktopUpdateButtonAction,
+  shouldShowArm64IntelBuildWarning,
+  shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
-    SidebarContent,
-    SidebarFooter,
-    SidebarGroup,
-    SidebarHeader,
-    SidebarMenuAction,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
-    SidebarMenuSub,
-    SidebarMenuSubButton,
-    SidebarMenuSubItem,
-    SidebarSeparator,
-    SidebarTrigger,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarMenuAction,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarSeparator,
+  SidebarTrigger,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
-    getVisibleSidebarThreadIds,
-    getVisibleThreadsForProject,
-    resolveAdjacentThreadId,
-    isContextMenuPointerDown,
-    resolveProjectStatusIndicator,
-    resolveSidebarNewThreadSeedContext,
-    resolveSidebarNewThreadEnvMode,
-    resolveThreadRowClassName,
-    resolveThreadStatusPill,
-    orderItemsByPreferredIds,
-    shouldClearThreadSelectionOnMouseDown,
-    sortProjectsForSidebar,
-    sortThreadsForSidebar,
-    useThreadJumpHintVisibility,
+  getVisibleSidebarThreadIds,
+  getVisibleThreadsForProject,
+  resolveAdjacentThreadId,
+  isContextMenuPointerDown,
+  resolveProjectStatusIndicator,
+  resolveSidebarNewThreadSeedContext,
+  resolveSidebarNewThreadEnvMode,
+  resolveThreadRowClassName,
+  resolveThreadStatusPill,
+  orderItemsByPreferredIds,
+  shouldClearThreadSelectionOnMouseDown,
+  sortProjectsForSidebar,
+  sortThreadsForSidebar,
+  useThreadJumpHintVisibility,
 } from "./Sidebar.logic";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
@@ -391,9 +391,9 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
           {threadStatus ? (
             <ThreadStatusLabel status={threadStatus} />
           ) : thread.provider === "claudeAgent" ? (
-            <ClaudeAI className="size-3.5 shrink-0 text-[#d97757]" />
+            <ClaudeAI className="size-3 shrink-0 text-[#d97757]" />
           ) : (
-            <OpenAI className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <OpenAI className="size-3 shrink-0 text-muted-foreground/70" />
           )}
           {props.renamingThreadId === thread.id ? (
             <input
@@ -427,7 +427,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
-            <span className="min-w-0 flex-1 truncate text-sm">{thread.title}</span>
+            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -720,10 +720,8 @@ export default function Sidebar() {
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
-  const isLinuxDesktop = isElectron && isLinuxPlatform(navigator.platform);
   const platform = navigator.platform;
-  const shouldBrowseForProjectImmediately = isElectron && !isLinuxDesktop;
-  const shouldShowProjectPathEntry = addingProject && !shouldBrowseForProjectImmediately;
+  const shouldShowProjectPathEntry = false;
   const orderedProjects = useMemo(() => {
     return orderItemsByPreferredIds({
       items: projects,
@@ -906,15 +904,11 @@ export default function Sidebar() {
         const description =
           error instanceof Error ? error.message : "An error occurred while adding the project.";
         setIsAddingProject(false);
-        if (shouldBrowseForProjectImmediately) {
-          toastManager.add({
-            type: "error",
-            title: "Failed to add project",
-            description,
-          });
-        } else {
-          setAddProjectError(description);
-        }
+        toastManager.add({
+          type: "error",
+          title: "Failed to add project",
+          description,
+        });
         return;
       }
       finishAddingProject();
@@ -924,7 +918,6 @@ export default function Sidebar() {
       handleNewThread,
       isAddingProject,
       projects,
-      shouldBrowseForProjectImmediately,
       appSettings.defaultThreadEnvMode,
     ],
   );
@@ -947,19 +940,13 @@ export default function Sidebar() {
     }
     if (pickedPath) {
       await addProjectFromPath(pickedPath);
-    } else if (!shouldBrowseForProjectImmediately) {
-      addProjectInputRef.current?.focus();
     }
     setIsPickingFolder(false);
   };
 
   const handleStartAddProject = () => {
     setAddProjectError(null);
-    if (shouldBrowseForProjectImmediately) {
-      void handlePickFolder();
-      return;
-    }
-    setAddingProject((prev) => !prev);
+    void handlePickFolder();
   };
 
   const cancelRename = useCallback(() => {
@@ -1248,7 +1235,11 @@ export default function Sidebar() {
       if (clicked !== "delete") return;
 
       const projectThreadIds = threadIdsByProjectId[projectId] ?? [];
-      if (projectThreadIds.length > 0) {
+      const activeThreadIds = projectThreadIds.filter((threadId) => {
+        const thread = sidebarThreadsById[threadId];
+        return thread !== undefined && thread.archivedAt === null;
+      });
+      if (activeThreadIds.length > 0) {
         toastManager.add({
           type: "warning",
           title: "Project is not empty",
@@ -1266,6 +1257,14 @@ export default function Sidebar() {
           clearComposerDraftForThread(projectDraftThread.threadId);
         }
         clearProjectDraftThreadId(projectId);
+
+        // Delete archived threads before removing the project so they don't become orphaned
+        const archivedThreadIds = projectThreadIds.filter((threadId) => {
+          const thread = sidebarThreadsById[threadId];
+          return thread !== undefined && thread.archivedAt !== null;
+        });
+        await Promise.all(archivedThreadIds.map((id) => deleteThread(id)));
+
         await api.orchestration.dispatchCommand({
           type: "project.delete",
           commandId: newCommandId(),
@@ -1285,8 +1284,10 @@ export default function Sidebar() {
       clearComposerDraftForThread,
       clearProjectDraftThreadId,
       copyPathToClipboard,
+      deleteThread,
       getDraftThreadByProjectId,
       projects,
+      sidebarThreadsById,
       threadIdsByProjectId,
     ],
   );
@@ -2134,7 +2135,7 @@ export default function Sidebar() {
                   onClick={() => void navigate({ to: "/settings" })}
                 >
                   <SettingsIcon className="size-3.5" />
-                  <span className="text-xs">Settings</span>
+                  <span className="text-sm">Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

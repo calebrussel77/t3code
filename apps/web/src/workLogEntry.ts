@@ -1,4 +1,5 @@
 import type { WorkLogEntry } from "./session-logic";
+import { basenameOfPath } from "./vscode-icons";
 
 type MinimalWorkEntry = Pick<
   WorkLogEntry,
@@ -51,11 +52,15 @@ function parseMcpFields(workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitl
   return parseMcpToolName(raw);
 }
 
-function mcpToolHeading(workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">): string {
+function mcpToolHeading(
+  workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">,
+): string {
   return parseMcpFields(workEntry)?.actionName ?? "MCP tool";
 }
 
-export function mcpServerLabel(workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">): string | null {
+export function mcpServerLabel(
+  workEntry: Pick<MinimalWorkEntry, "toolName" | "toolTitle" | "label">,
+): string | null {
   return parseMcpFields(workEntry)?.serverName ?? null;
 }
 
@@ -71,17 +76,30 @@ function humanizeToolLabel(value: string): string {
   const normalized = normalizeCompactToolLabel(value).replace(/[_-]+/g, " ").trim();
   switch (normalized.toLowerCase()) {
     case "exec command":
+    case "bash":
       return "Shell";
     case "read file":
+    case "read":
       return "Read";
     case "apply patch":
+    case "edit":
       return "Edit";
+    case "write":
+      return "Write";
     case "web search":
+    case "websearch":
       return "Web";
     case "image view":
       return "Image";
     case "subagent task":
+    case "agent":
       return "Agent";
+    case "glob":
+      return "Glob";
+    case "grep":
+      return "Grep";
+    case "skill":
+      return "Skill";
     default:
       return capitalizePhrase(normalized);
   }
@@ -94,9 +112,18 @@ export function toolWorkEntryHeading(
     return mcpToolHeading(workEntry);
   }
   if (workEntry.toolTitle) {
-    return humanizeToolLabel(workEntry.toolTitle);
+    const heading = humanizeToolLabel(workEntry.toolTitle);
+    // If toolTitle produced a generic label, try toolName as a better source
+    if (heading.toLowerCase() === "tool call" && workEntry.toolName) {
+      return humanizeToolLabel(workEntry.toolName);
+    }
+    return heading;
   }
-  return humanizeToolLabel(workEntry.label);
+  const heading = humanizeToolLabel(workEntry.label);
+  if (heading.toLowerCase() === "tool call" && workEntry.toolName) {
+    return humanizeToolLabel(workEntry.toolName);
+  }
+  return heading;
 }
 
 /**
@@ -177,8 +204,68 @@ function stripSurroundingQuotes(value: string): string {
   return value;
 }
 
+/** Safely extract a string field from a JSON toolInput blob. */
+function extractJsonField(toolInput: string, key: string): string | null {
+  try {
+    const parsed = JSON.parse(toolInput) as Record<string, unknown>;
+    if (typeof parsed !== "object" || !parsed) return null;
+    const value = parsed[key];
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Derive a short contextual hint from toolInput to append to the summary line.
+ * Returns null when nothing useful can be extracted.
+ */
+function extractToolHint(summary: string, toolInput: string | undefined | null): string | null {
+  if (!toolInput) return null;
+  const key = summary.toLowerCase();
+
+  // File-oriented tools: show the filename
+  if (key === "read" || key === "edit" || key === "write") {
+    const filePath = extractJsonField(toolInput, "file_path");
+    return filePath ? basenameOfPath(filePath) : null;
+  }
+
+  // Glob: show the pattern
+  if (key === "glob") {
+    return extractJsonField(toolInput, "pattern");
+  }
+
+  // Grep: show the search pattern
+  if (key === "grep") {
+    return extractJsonField(toolInput, "pattern");
+  }
+
+  // Agent: show the short description
+  if (key === "agent") {
+    return extractJsonField(toolInput, "description");
+  }
+
+  // Skill: show the skill name
+  if (key === "skill") {
+    return extractJsonField(toolInput, "skill");
+  }
+
+  // Bash/Shell: show the command (truncated)
+  if (key === "shell" || key === "bash") {
+    const cmd = extractJsonField(toolInput, "command");
+    if (!cmd) return null;
+    const simplified = simplifyShellCommand(cmd);
+    return simplified.length > 60 ? `${simplified.slice(0, 57)}...` : simplified;
+  }
+
+  return null;
+}
+
 export function workEntrySummary(
-  workEntry: Pick<MinimalWorkEntry, "label" | "toolTitle" | "command" | "requestKind" | "itemType" | "toolName">,
+  workEntry: Pick<
+    MinimalWorkEntry,
+    "label" | "toolTitle" | "command" | "requestKind" | "itemType" | "toolName" | "toolInput"
+  >,
 ): string {
   if (
     workEntry.command &&
@@ -197,7 +284,17 @@ export function workEntrySummary(
   if (normalizedLabel.length === 0) {
     return toolWorkEntryHeading(workEntry);
   }
-  return simplifyRanLabel(capitalizePhrase(normalizedLabel));
+  let summary = simplifyRanLabel(capitalizePhrase(normalizedLabel));
+  // If the label is generic "Tool call", fall back to toolName for a better summary
+  if (summary.toLowerCase() === "tool call" && workEntry.toolName) {
+    summary = humanizeToolLabel(workEntry.toolName);
+  }
+  // Append a contextual hint for tools that only show a generic verb
+  const hint = extractToolHint(summary, workEntry.toolInput);
+  if (hint) {
+    return `${summary} ${hint}`;
+  }
+  return summary;
 }
 
 /** If a label starts with "Ran " and contains a shell wrapper, simplify it. */

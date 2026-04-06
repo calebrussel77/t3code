@@ -1,5 +1,5 @@
 import { ProjectId, type ModelSelection, type ThreadId, type TurnId } from "@t3tools/contracts";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
+import { type ChatMessage, type SessionPhase, type Thread } from "../types";
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
@@ -249,8 +249,6 @@ export interface LocalDispatchSnapshot {
   latestTurnRequestedAt: string | null;
   latestTurnStartedAt: string | null;
   latestTurnCompletedAt: string | null;
-  sessionOrchestrationStatus: ThreadSession["orchestrationStatus"] | null;
-  sessionUpdatedAt: string | null;
 }
 
 export function createLocalDispatchSnapshot(
@@ -258,7 +256,6 @@ export function createLocalDispatchSnapshot(
   options?: { preparingWorktree?: boolean },
 ): LocalDispatchSnapshot {
   const latestTurn = activeThread?.latestTurn ?? null;
-  const session = activeThread?.session ?? null;
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
@@ -266,8 +263,6 @@ export function createLocalDispatchSnapshot(
     latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
     latestTurnStartedAt: latestTurn?.startedAt ?? null,
     latestTurnCompletedAt: latestTurn?.completedAt ?? null,
-    sessionOrchestrationStatus: session?.orchestrationStatus ?? null,
-    sessionUpdatedAt: session?.updatedAt ?? null,
   };
 }
 
@@ -275,7 +270,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
-  session: Thread["session"] | null;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -293,14 +287,17 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   }
 
   const latestTurn = input.latestTurn ?? null;
-  const session = input.session ?? null;
 
+  // Only consider turn-level field changes as acknowledgment signals.
+  // Session-level fields (orchestrationStatus, updatedAt) are excluded because
+  // they can change during intermediate states (e.g. "starting", "ready") before
+  // the session reaches "running" — which is already handled by the phase check above.
+  // Including them here caused a gap where isSendBusy was cleared before phase === "running",
+  // making the "Working for..." indicator briefly disappear and reappear.
   return (
     input.localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
     input.localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
     input.localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
-    input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null) ||
-    input.localDispatch.sessionOrchestrationStatus !== (session?.orchestrationStatus ?? null) ||
-    input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
+    input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null)
   );
 }

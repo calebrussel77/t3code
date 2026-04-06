@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { promisify } from "node:util";
 import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
   CommandId,
@@ -18,6 +20,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   SkillListError,
+  DialogPickFolderError,
   ThreadId,
   type TerminalEvent,
   WS_METHODS,
@@ -662,6 +665,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
           "rpc.aggregate": "workspace",
         }),
+      [WS_METHODS.dialogsPickFolder]: () =>
+        observeRpcEffect(
+          WS_METHODS.dialogsPickFolder,
+          Effect.tryPromise({
+            try: () => pickFolderNative(),
+            catch: (err) =>
+              new DialogPickFolderError({
+                message: err instanceof Error ? err.message : "Failed to open folder picker",
+              }),
+          }).pipe(Effect.map((pickedPath) => ({ path: pickedPath }))),
+          { "rpc.aggregate": "dialogs" },
+        ),
       [WS_METHODS.gitStatus]: (input) =>
         observeRpcEffect(WS_METHODS.gitStatus, gitManager.status(input), {
           "rpc.aggregate": "git",
@@ -845,3 +860,82 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     );
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Native folder picker
+// ---------------------------------------------------------------------------
+
+function pickFolderNative(): Promise<string | null> {
+  const platform = process.platform;
+  if (platform === "win32") {
+    return pickFolderWindows();
+  }
+  if (platform === "darwin") {
+    return pickFolderMacOS();
+  }
+  return pickFolderLinux();
+}
+
+const execFileAsync = promisify(execFile);
+
+function execFilePromise(
+  cmd: string,
+  args: string[],
+  options?: { shell?: boolean },
+): Promise<string> {
+  return execFileAsync(cmd, args, { ...options, timeout: 120_000 }).then((r) => r.stdout);
+}
+
+async function pickFolderWindows(): Promise<string | null> {
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = 'Select a project folder'
+$dialog.ShowNewFolderButton = $false
+if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath } else { '' }
+`.trim();
+  const stdout = await execFilePromise("powershell", ["-NoProfile", "-Command", script]);
+  const result = stdout.trim();
+  return result.length > 0 ? result : null;
+}
+
+async function pickFolderMacOS(): Promise<string | null> {
+  const script =
+    'tell application "System Events" to return POSIX path of (choose folder with prompt "Select a project folder")';
+  try {
+    const stdout = await execFilePromise("osascript", ["-e", script]);
+    const result = stdout.trim().replace(/\/$/, "");
+    return result.length > 0 ? result : null;
+  } catch {
+    // User cancelled the dialog
+    return null;
+  }
+}
+
+async function pickFolderLinux(): Promise<string | null> {
+  try {
+    const stdout = await execFilePromise("zenity", [
+      "--file-selection",
+      "--directory",
+      "--title=Select a project folder",
+    ]);
+    const result = stdout.trim();
+    return result.length > 0 ? result : null;
+  } catch {
+    // zenity not available or user cancelled — try kdialog
+    try {
+      const stdout = await execFilePromise("kdialog", [
+        "--getexistingdirectory",
+        os.homedir(),
+        "--title",
+        "Select a project folder",
+      ]);
+      const result = stdout.trim();
+      return result.length > 0 ? result : null;
+    } catch {
+      throw new Error(
+        "No folder picker available. Install zenity or kdialog, or enter the path manually.",
+      );
+    }
+  }
+}

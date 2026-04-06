@@ -53,6 +53,9 @@ export interface WsRpcClient {
   readonly skills: {
     readonly list: RpcUnaryMethod<typeof WS_METHODS.skillsList>;
   };
+  readonly dialogs: {
+    readonly pickFolder: () => Promise<{ path: string | null }>;
+  };
   readonly shell: {
     readonly openInEditor: (input: {
       readonly cwd: Parameters<NativeApi["shell"]["openInEditor"]>[0];
@@ -137,6 +140,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     },
     skills: {
       list: (input) => transport.request((client) => client[WS_METHODS.skillsList](input)),
+    },
+    dialogs: {
+      pickFolder: () =>
+        transport.request((client) => client[WS_METHODS.dialogsPickFolder]({})),
     },
     shell: {
       openInEditor: (input) =>

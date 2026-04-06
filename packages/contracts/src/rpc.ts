@@ -84,6 +84,9 @@ export const WS_METHODS = {
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
 
+  // Dialog methods
+  dialogsPickFolder: "dialogs.pickFolder",
+
   // Git methods
   gitPull: "git.pull",
   gitStatus: "git.status",
@@ -172,6 +175,22 @@ export const WsSkillsListRpc = Rpc.make(WS_METHODS.skillsList, {
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
   error: OpenError,
+});
+
+export class DialogPickFolderError extends Schema.TaggedErrorClass<DialogPickFolderError>()(
+  "DialogPickFolderError",
+  { message: Schema.String },
+) {}
+
+export const DialogPickFolderResult = Schema.Struct({
+  path: Schema.NullOr(Schema.String),
+});
+export type DialogPickFolderResult = typeof DialogPickFolderResult.Type;
+
+export const WsDialogsPickFolderRpc = Rpc.make(WS_METHODS.dialogsPickFolder, {
+  payload: Schema.Struct({}),
+  success: DialogPickFolderResult,
+  error: DialogPickFolderError,
 });
 
 export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
@@ -349,6 +368,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsSkillsListRpc,
   WsShellOpenInEditorRpc,
+  WsDialogsPickFolderRpc,
   WsGitStatusRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,

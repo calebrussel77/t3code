@@ -34,6 +34,7 @@ import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
+import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
@@ -44,6 +45,14 @@ const DIFF_PANEL_UNSAFE_CSS = `
 [data-file],
 [data-error-wrapper],
 [data-virtualizer-buffer] {
+  --diffs-font-family:
+    var(--app-code-font-family),
+    "SF Mono",
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    monospace;
   --diffs-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
   --diffs-light-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
   --diffs-dark-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
@@ -72,6 +81,12 @@ const DIFF_PANEL_UNSAFE_CSS = `
   background-color: var(--diffs-bg) !important;
 }
 
+[data-diff],
+[data-file] {
+  font-family: var(--diffs-font-family) !important;
+  font-size: var(--app-code-font-size) !important;
+}
+
 [data-file-info] {
   background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
   border-block-color: var(--border) !important;
@@ -84,6 +99,31 @@ const DIFF_PANEL_UNSAFE_CSS = `
   z-index: 4;
   background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
   border-bottom: 1px solid var(--border) !important;
+}
+
+[data-file-info],
+[data-diffs-header],
+[data-title],
+[data-file-info] button,
+[data-file-info] [role="button"],
+[data-diffs-header] button,
+[data-diffs-header] [role="button"] {
+  font-family:
+    var(--app-ui-font-family),
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif !important;
+  font-size: var(--app-ui-font-size) !important;
+}
+
+[data-diffs-header] {
+  cursor: pointer;
+}
+
+[data-change-icon] {
+  display: none !important;
 }
 
 [data-title] {
@@ -172,6 +212,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const patchViewportRef = useRef<HTMLDivElement>(null);
   const turnStripRef = useRef<HTMLDivElement>(null);
   const previousDiffOpenRef = useRef(false);
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [canScrollTurnStripLeft, setCanScrollTurnStripLeft] = useState(false);
   const [canScrollTurnStripRight, setCanScrollTurnStripRight] = useState(false);
   const routeThreadId = useParams({
@@ -300,6 +341,10 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         sensitivity: "base",
       }),
     );
+  }, [renderablePatch]);
+
+  useEffect(() => {
+    setCollapsedFiles(new Set());
   }, [renderablePatch]);
 
   useEffect(() => {
@@ -581,7 +626,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
               )
             ) : renderablePatch.kind === "files" ? (
               <Virtualizer
-                className="diff-render-surface h-full min-h-0 overflow-auto px-2 pb-2"
+                className="diff-render-surface diff-render-code-surface h-full min-h-0 overflow-auto px-2 pb-2"
                 config={{
                   overscrollSize: 600,
                   intersectionObserverMargin: 1200,
@@ -591,17 +636,36 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                   const filePath = resolveFileDiffPath(fileDiff);
                   const fileKey = buildFileDiffRenderKey(fileDiff);
                   const themedFileKey = `${fileKey}:${resolvedTheme}`;
+                  const isCollapsed = collapsedFiles.has(filePath);
                   return (
                     <div
                       key={themedFileKey}
                       data-diff-file-path={filePath}
                       className="diff-render-file mb-2 rounded-md first:mt-2 last:mb-0"
                       onClickCapture={(event) => {
-                        const nativeEvent = event.nativeEvent as MouseEvent;
-                        const composedPath = nativeEvent.composedPath?.() ?? [];
+                        const composedPath =
+                          (event.nativeEvent as MouseEvent).composedPath?.() ?? [];
                         const clickedHeader = composedPath.some((node) => {
                           if (!(node instanceof Element)) return false;
-                          return node.hasAttribute("data-title");
+                          return node.hasAttribute("data-diffs-header");
+                        });
+                        if (!clickedHeader) return;
+                        setCollapsedFiles((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(filePath)) {
+                            next.delete(filePath);
+                          } else {
+                            next.add(filePath);
+                          }
+                          return next;
+                        });
+                      }}
+                      onDoubleClickCapture={(event) => {
+                        const composedPath =
+                          (event.nativeEvent as MouseEvent).composedPath?.() ?? [];
+                        const clickedHeader = composedPath.some((node) => {
+                          if (!(node instanceof Element)) return false;
+                          return node.hasAttribute("data-diffs-header");
                         });
                         if (!clickedHeader) return;
                         openDiffFileInEditor(filePath);
@@ -609,7 +673,16 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                     >
                       <FileDiff
                         fileDiff={fileDiff}
+                        renderHeaderPrefix={() => (
+                          <VscodeEntryIcon
+                            pathValue={filePath}
+                            kind="file"
+                            theme={resolvedTheme as "light" | "dark"}
+                            className="size-4"
+                          />
+                        )}
                         options={{
+                          collapsed: isCollapsed,
                           diffStyle: diffRenderMode === "split" ? "split" : "unified",
                           lineDiffType: "none",
                           overflow: diffWordWrap ? "wrap" : "scroll",
@@ -623,12 +696,12 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 })}
               </Virtualizer>
             ) : (
-              <div className="h-full overflow-auto p-2">
+              <div className="diff-render-code-surface h-full overflow-auto p-2">
                 <div className="space-y-2">
                   <p className="text-[11px] text-muted-foreground/75">{renderablePatch.reason}</p>
                   <pre
                     className={cn(
-                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono leading-relaxed text-muted-foreground/90",
                       diffWordWrap
                         ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                         : "overflow-auto",
