@@ -163,19 +163,26 @@ export function isCommandAvailable(
   command: string,
   options: CommandAvailabilityOptions = {},
 ): boolean {
+  return resolveCommandPath(command, options) !== undefined;
+}
+
+export function resolveCommandPath(
+  command: string,
+  options: CommandAvailabilityOptions = {},
+): string | undefined {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const windowsPathExtensions = platform === "win32" ? resolveWindowsPathExtensions(env) : [];
   const commandCandidates = resolveCommandCandidates(command, platform, windowsPathExtensions);
 
   if (command.includes("/") || command.includes("\\")) {
-    return commandCandidates.some((candidate) =>
+    return commandCandidates.find((candidate) =>
       isExecutableFile(candidate, platform, windowsPathExtensions),
     );
   }
 
   const pathValue = resolvePathEnvironmentVariable(env);
-  if (pathValue.length === 0) return false;
+  if (pathValue.length === 0) return undefined;
   const pathEntries = pathValue
     .split(resolvePathDelimiter(platform))
     .map((entry) => stripWrappingQuotes(entry.trim()))
@@ -183,12 +190,13 @@ export function isCommandAvailable(
 
   for (const pathEntry of pathEntries) {
     for (const candidate of commandCandidates) {
-      if (isExecutableFile(join(pathEntry, candidate), platform, windowsPathExtensions)) {
-        return true;
+      const candidatePath = join(pathEntry, candidate);
+      if (isExecutableFile(candidatePath, platform, windowsPathExtensions)) {
+        return candidatePath;
       }
     }
   }
-  return false;
+  return undefined;
 }
 
 export function resolveAvailableEditors(

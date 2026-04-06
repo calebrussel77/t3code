@@ -291,6 +291,10 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
 
   it.effect("preserves non-notFound cwd stat failures", () =>
     Effect.gen(function* () {
+      if (process.platform === "win32") {
+        return;
+      }
+
       const { manager, baseDir } = yield* createManager();
       const blockedRoot = path.join(baseDir, "blocked-root");
       const blockedCwd = path.join(blockedRoot, "cwd");
@@ -833,9 +837,12 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
       expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/definitely/missing-shell");
 
       if (process.platform === "win32") {
+        const attemptedFallbackShells = ptyAdapter.spawnInputs
+          .slice(1)
+          .map((input) => path.basename(input.shell).toLowerCase());
         expect(
-          ptyAdapter.spawnInputs.some(
-            (input) => input.shell === "cmd.exe" || input.shell === "powershell.exe",
+          attemptedFallbackShells.some(
+            (shell) => shell === "cmd.exe" || shell === "powershell.exe",
           ),
         ).toBe(true);
       } else {

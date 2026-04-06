@@ -1,4 +1,5 @@
 import {
+  AlertCircleIcon,
   ArchiveIcon,
   ArchiveX,
   ChevronDownIcon,
@@ -9,7 +10,7 @@ import {
   Undo2Icon,
   XIcon,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
@@ -1712,6 +1713,202 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+    </SettingsPageContainer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Usage Panel — fetches usage via server RPC
+// ---------------------------------------------------------------------------
+
+import type { UsageProgressLine, UsageProviderSnapshot } from "@t3tools/contracts";
+import { usageSnapshotsQueryOptions } from "../../lib/usageReactQuery";
+
+function formatResetRelative(nowMs: number, resetsAtIso: string): string | null {
+  const resetsAtMs = Date.parse(resetsAtIso);
+  if (!Number.isFinite(resetsAtMs)) return null;
+  const deltaMs = resetsAtMs - nowMs;
+  if (deltaMs <= 0) return "Resets soon";
+  const totalMinutes = Math.floor(deltaMs / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  if (days > 0) return `Resets in ${days}d ${remainingHours}h`;
+  if (hours > 0) return `Resets in ${hours}h ${minutes}m`;
+  return `Resets in ${minutes}m`;
+}
+
+function UsageProgressBar({ used, limit, color }: { used: number; limit: number; color?: string }) {
+  const percent = Math.min(100, Math.max(0, (used / limit) * 100));
+  const isHigh = percent >= 80;
+  const isExhausted = percent >= 100;
+
+  return (
+    <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div
+        className={cn(
+          "h-full rounded-full transition-all duration-500",
+          color ? "" : isExhausted ? "bg-destructive" : isHigh ? "bg-warning" : "bg-primary",
+        )}
+        style={{
+          width: `${percent}%`,
+          ...(color ? { backgroundColor: color } : {}),
+        }}
+      />
+    </div>
+  );
+}
+
+function UsageProgressLineRow({ line, nowMs }: { line: UsageProgressLine; nowMs: number }) {
+  const resetLabel = line.resetsAt ? formatResetRelative(nowMs, line.resetsAt) : null;
+  const remaining = Math.max(0, line.limit - line.used);
+
+  const primaryText =
+    line.format.kind === "percent"
+      ? `${Math.round(remaining)}% left`
+      : line.format.kind === "dollars"
+        ? `$${remaining.toFixed(2)} left`
+        : `${Math.round(remaining)} ${line.format.suffix} left`;
+
+  const secondaryText =
+    resetLabel ??
+    (line.format.kind === "percent"
+      ? `${line.limit}% cap`
+      : line.format.kind === "dollars"
+        ? `$${line.limit.toFixed(2)} limit`
+        : `${Math.round(line.limit)} ${line.format.suffix}`);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-foreground">{line.label}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{primaryText}</span>
+      </div>
+      <UsageProgressBar used={line.used} limit={line.limit} />
+      <div className="flex items-center justify-end">
+        <span className="text-[11px] tabular-nums text-muted-foreground">{secondaryText}</span>
+      </div>
+    </div>
+  );
+}
+
+function UsageProviderCard({
+  snapshot,
+  nowMs,
+}: {
+  snapshot: UsageProviderSnapshot;
+  nowMs: number;
+}) {
+  if (snapshot.lines.length === 0) {
+    return (
+      <div className="border-t border-border px-4 py-4 first:border-t-0 sm:px-5">
+        <p className="text-xs text-muted-foreground">No usage data available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {snapshot.lines.map((line, index) => (
+        <div
+          key={`${line.label}-${index}`}
+          className="border-t border-border px-4 py-4 first:border-t-0 sm:px-5"
+        >
+          <UsageProgressLineRow line={line} nowMs={nowMs} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+export function UsagePanel() {
+  const {
+    data: snapshots = [],
+    isPending: loading,
+    error,
+    refetch,
+  } = useQuery(usageSnapshotsQueryOptions());
+  const [tick, setTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const refresh = useCallback(() => void refetch(), [refetch]);
+  const errorMessage = error
+    ? error instanceof Error
+      ? error.message
+      : "Failed to fetch usage data."
+    : null;
+  const hasData = snapshots.length > 0;
+
+  return (
+    <SettingsPageContainer>
+      {loading ? (
+        <SettingsSection title="Usage">
+          <div className="flex items-center justify-center px-4 py-12">
+            <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-xs text-muted-foreground">Loading usage data...</span>
+          </div>
+        </SettingsSection>
+      ) : errorMessage ? (
+        <SettingsSection
+          title="Usage"
+          headerAction={
+            <Button size="xs" variant="ghost" className="gap-1.5" onClick={refresh}>
+              <RefreshCwIcon className="size-3" />
+              <span>Retry</span>
+            </Button>
+          }
+        >
+          <div className="flex flex-col items-center gap-3 px-4 py-12">
+            <AlertCircleIcon className="size-5 text-muted-foreground" />
+            <p className="max-w-sm text-center text-xs text-muted-foreground">{errorMessage}</p>
+          </div>
+        </SettingsSection>
+      ) : !hasData ? (
+        <SettingsSection
+          title="Usage"
+          headerAction={
+            <Button size="xs" variant="ghost" className="gap-1.5" onClick={refresh}>
+              <RefreshCwIcon className="size-3" />
+              <span>Refresh</span>
+            </Button>
+          }
+        >
+          <div className="flex flex-col items-center gap-3 px-4 py-12">
+            <p className="text-xs text-muted-foreground">
+              No usage data found. Make sure your Claude or Codex subscriptions are authenticated.
+            </p>
+          </div>
+        </SettingsSection>
+      ) : (
+        <>
+          {snapshots.map((snapshot) => (
+            <SettingsSection
+              key={snapshot.providerId}
+              title={snapshot.displayName}
+              headerAction={
+                <div className="flex items-center gap-2">
+                  {snapshot.plan ? (
+                    <span className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {snapshot.plan}
+                    </span>
+                  ) : null}
+                  <Button size="xs" variant="ghost" className="gap-1.5" onClick={refresh}>
+                    <RefreshCwIcon className="size-3" />
+                    <span>Refresh</span>
+                  </Button>
+                </div>
+              }
+            >
+              <UsageProviderCard snapshot={snapshot} nowMs={tick} />
+            </SettingsSection>
+          ))}
+        </>
+      )}
     </SettingsPageContainer>
   );
 }

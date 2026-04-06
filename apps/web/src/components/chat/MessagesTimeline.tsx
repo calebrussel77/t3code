@@ -49,6 +49,7 @@ import {
   estimateMessagesTimelineRowHeight,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
+import { SkillInlineChip } from "./SkillInlineChip";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { groupWorkEntriesForTimeline, isReasoningUpdateWorkEntry } from "./workEntryGrouping";
@@ -426,7 +427,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           return (
             <div className="flex justify-end">
               <div className="group flex max-w-[80%] flex-col items-end">
-                <div className="relative rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
+                <div className="relative rounded-xl border border-border bg-secondary px-3 py-2">
                   {userImages.length > 0 && (
                     <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
                       {userImages.map(
@@ -695,6 +696,42 @@ const UserMessageTerminalContextInlineLabel = memo(
   },
 );
 
+const SKILL_TOKEN_RE = /(^|\s)\$([a-zA-Z0-9_:.-][a-zA-Z0-9_:./-]*)/g;
+
+function renderTextWithSkillChips(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(SKILL_TOKEN_RE)) {
+    const fullMatch = match[0];
+    const leadingSpace = match[1]!;
+    const skillName = match[2]!;
+    const matchStart = match.index!;
+
+    // Text before this match (including the leading whitespace that's part of the regex)
+    const beforeEnd = matchStart + leadingSpace.length;
+    if (beforeEnd > lastIndex) {
+      nodes.push(
+        <span key={`${keyPrefix}-text-${lastIndex}`}>{text.slice(lastIndex, beforeEnd)}</span>,
+      );
+    }
+
+    nodes.push(<SkillInlineChip key={`${keyPrefix}-skill-${matchStart}`} name={skillName} />);
+    lastIndex = matchStart + fullMatch.length;
+  }
+
+  if (lastIndex === 0) {
+    // No skill tokens found — return text as-is
+    return [text];
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(<span key={`${keyPrefix}-text-${lastIndex}`}>{text.slice(lastIndex)}</span>);
+  }
+
+  return nodes;
+}
+
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
   terminalContexts: ParsedTerminalContextEntry[];
@@ -719,9 +756,10 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
         if (matchIndex > cursor) {
           inlineNodes.push(
-            <span key={`user-terminal-context-inline-before:${context.header}:${cursor}`}>
-              {props.text.slice(cursor, matchIndex)}
-            </span>,
+            ...renderTextWithSkillChips(
+              props.text.slice(cursor, matchIndex),
+              `user-tc-before:${context.header}:${cursor}`,
+            ),
           );
         }
         inlineNodes.push(
@@ -736,9 +774,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       if (inlineNodes.length > 0) {
         if (cursor < props.text.length) {
           inlineNodes.push(
-            <span key={`user-message-terminal-context-inline-rest:${cursor}`}>
-              {props.text.slice(cursor)}
-            </span>,
+            ...renderTextWithSkillChips(props.text.slice(cursor), `user-tc-rest:${cursor}`),
           );
         }
 
@@ -765,7 +801,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     if (props.text.length > 0) {
-      inlineNodes.push(<span key="user-message-terminal-context-inline-text">{props.text}</span>);
+      inlineNodes.push(...renderTextWithSkillChips(props.text, "user-tc-text"));
     } else if (inlinePrefix.length === 0) {
       return null;
     }
@@ -781,9 +817,10 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     return null;
   }
 
+  const rendered = renderTextWithSkillChips(props.text, "user-msg");
   return (
     <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground">
-      {props.text}
+      {rendered}
     </pre>
   );
 });

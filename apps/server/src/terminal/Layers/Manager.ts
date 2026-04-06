@@ -187,27 +187,58 @@ function defaultShellResolver(): string {
   return process.env.SHELL ?? "bash";
 }
 
-function normalizeShellCommand(value: string | undefined): string | null {
-  if (!value) return null;
+function splitShellCommand(value: string | undefined): ReadonlyArray<string> {
+  if (!value) return [];
   const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
+  if (trimmed.length === 0) return [];
 
-  if (process.platform === "win32") {
-    return trimmed;
+  const tokens: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (const char of trimmed) {
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
   }
 
-  const firstToken = trimmed.split(/\s+/g)[0]?.trim();
-  if (!firstToken) return null;
-  return firstToken.replace(/^['"]|['"]$/g, "");
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
 }
 
-function shellCandidateFromCommand(command: string | null): ShellCandidate | null {
-  if (!command || command.length === 0) return null;
-  const shellName = path.basename(command).toLowerCase();
+function shellCandidateFromCommand(commandLine: string | null | undefined): ShellCandidate | null {
+  const [shell, ...args] = splitShellCommand(commandLine ?? undefined);
+  if (!shell) return null;
+
+  const shellName = path.basename(shell).toLowerCase();
   if (process.platform !== "win32" && shellName === "zsh") {
-    return { shell: command, args: ["-o", "nopromptsp"] };
+    return { shell, args: [...args, "-o", "nopromptsp"] };
   }
-  return { shell: command };
+
+  return args.length > 0 ? { shell, args } : { shell };
 }
 
 function formatShellCandidate(candidate: ShellCandidate): string {
@@ -229,7 +260,7 @@ function uniqueShellCandidates(candidates: Array<ShellCandidate | null>): ShellC
 }
 
 function resolveShellCandidates(shellResolver: () => string): ShellCandidate[] {
-  const requested = shellCandidateFromCommand(normalizeShellCommand(shellResolver()));
+  const requested = shellCandidateFromCommand(shellResolver());
 
   if (process.platform === "win32") {
     return uniqueShellCandidates([
@@ -242,7 +273,7 @@ function resolveShellCandidates(shellResolver: () => string): ShellCandidate[] {
 
   return uniqueShellCandidates([
     requested,
-    shellCandidateFromCommand(normalizeShellCommand(process.env.SHELL)),
+    shellCandidateFromCommand(process.env.SHELL),
     shellCandidateFromCommand("/bin/zsh"),
     shellCandidateFromCommand("/bin/bash"),
     shellCandidateFromCommand("/bin/sh"),

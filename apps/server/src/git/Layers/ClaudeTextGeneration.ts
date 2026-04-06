@@ -32,8 +32,13 @@ import {
 import { normalizeClaudeModelOptionsWithCapabilities } from "@t3tools/shared/model";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "../../provider/Layers/ClaudeProvider.ts";
+import { resolveCommandPath } from "../../open.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
+
+function escapeWindowsShellJsonArgument(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
 
 /**
  * Schema for the wrapper JSON returned by `claude -p --output-format json`.
@@ -84,6 +89,8 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     modelSelection: ClaudeModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const jsonSchemaStr = JSON.stringify(toJsonSchemaObject(outputSchemaJson));
+    const shellSafeJsonSchemaStr =
+      process.platform === "win32" ? escapeWindowsShellJsonArgument(jsonSchemaStr) : jsonSchemaStr;
     const normalizedOptions = normalizeClaudeModelOptionsWithCapabilities(
       getClaudeModelCapabilities(modelSelection.model),
       modelSelection.options,
@@ -101,18 +108,31 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     ).pipe(Effect.catch(() => Effect.undefined));
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
+      const configuredClaudeCommand = claudeSettings?.binaryPath || "claude";
+      const resolvedClaudeCommand =
+        process.platform === "win32"
+          ? resolveCommandPath(configuredClaudeCommand, {
+              platform: process.platform,
+              env: process.env,
+            })
+          : undefined;
+      const settingsArg = Object.keys(settings).length > 0 ? JSON.stringify(settings) : undefined;
+      const shellSafeSettingsArg =
+        settingsArg && process.platform === "win32"
+          ? escapeWindowsShellJsonArgument(settingsArg)
+          : settingsArg;
       const command = ChildProcess.make(
-        claudeSettings?.binaryPath || "claude",
+        resolvedClaudeCommand ?? configuredClaudeCommand,
         [
           "-p",
           "--output-format",
           "json",
           "--json-schema",
-          jsonSchemaStr,
+          shellSafeJsonSchemaStr,
           "--model",
           resolveApiModelId(modelSelection),
           ...(normalizedOptions?.effort ? ["--effort", normalizedOptions.effort] : []),
-          ...(Object.keys(settings).length > 0 ? ["--settings", JSON.stringify(settings)] : []),
+          ...(shellSafeSettingsArg ? ["--settings", shellSafeSettingsArg] : []),
           "--dangerously-skip-permissions",
         ],
         {

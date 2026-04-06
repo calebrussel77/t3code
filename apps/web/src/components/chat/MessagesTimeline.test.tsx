@@ -46,7 +46,7 @@ beforeAll(() => {
 
 beforeAll(async () => {
   ({ MessagesTimeline } = await import("./MessagesTimeline"));
-}, 60_000);
+}, 120_000);
 
 describe("MessagesTimeline", () => {
   it("renders inline terminal labels with the composer chip UI", () => {

@@ -47,6 +47,7 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { TerminalManager } from "./terminal/Services/Manager";
+import { UsageService } from "./usageService";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
@@ -70,6 +71,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+    const usageService = yield* UsageService;
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -529,6 +531,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
         observeRpcEffect(WS_METHODS.serverUpdateSettings, serverSettings.updateSettings(patch), {
           "rpc.aggregate": "server",
+        }),
+      [WS_METHODS.usageGetSnapshots]: (_input) =>
+        observeRpcEffect(WS_METHODS.usageGetSnapshots, usageService.getSnapshots, {
+          "rpc.aggregate": "usage",
         }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         observeRpcEffect(

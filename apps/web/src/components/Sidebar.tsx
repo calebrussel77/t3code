@@ -131,6 +131,7 @@ import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project } from "../types";
+import { CustomSpinner } from "./ui/custom-spinner";
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -173,17 +174,19 @@ function ThreadStatusLabel({
 }) {
   if (compact) {
     return (
-      <span
-        title={status.label}
-        className={`inline-flex size-3.5 shrink-0 items-center justify-center ${status.colorClass}`}
-      >
-        <span
-          className={`size-[9px] rounded-full ${status.dotClass} ${
-            status.pulse ? "animate-pulse" : ""
-          }`}
-        />
+      <>
+        {status.pulse ? (
+          <CustomSpinner speed="slow" size="sm" />
+        ) : (
+          <span
+            title={status.label}
+            className={`inline-flex size-3.5 shrink-0 items-center justify-center ${status.colorClass}`}
+          >
+            <span className={`size-[8px] rounded-full ${status.dotClass}`} />
+          </span>
+        )}
         <span className="sr-only">{status.label}</span>
-      </span>
+      </>
     );
   }
 
@@ -1714,7 +1717,7 @@ export default function Sidebar() {
                 render={<button type="button" />}
                 data-thread-selection-safe
                 size="sm"
-                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-xs text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                 onClick={() => {
                   expandThreadListForProject(project.id);
                 }}
@@ -1732,7 +1735,7 @@ export default function Sidebar() {
                 render={<button type="button" />}
                 data-thread-selection-safe
                 size="sm"
-                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-xs text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                 onClick={() => {
                   collapseThreadListForProject(project.id);
                 }}
